@@ -5,7 +5,7 @@ param(
   [string]$StackName = 'grafana-alert-lambda',
   [string]$FunctionName = 'grafana-alert-lambda',
   [string]$Region = 'us-east-1',
-  [string]$SecretName = 'grafana-alert/env',
+  [string]$SecretName = '',
   [string]$RoutePath = '/grafana/webhook',
   [int]$Timeout = 30,
   [int]$MemorySize = 256,
@@ -125,7 +125,52 @@ function Show-StackFailureEvents {
   Write-Host '  aws iam delete-role --role-name grafana-alert-lambda-role'
 }
 
+function Get-DefaultSecretName {
+  return 'grafana-alert/env'
+}
+
+function Get-CurrentLambdaSecretName {
+  try {
+    $current = Invoke-Aws @(
+      'lambda', 'get-function-configuration',
+      '--function-name', $FunctionName,
+      '--query', 'Environment.Variables.ALERTING_SECRET_NAME',
+      '--output', 'text'
+    )
+
+    if ($LASTEXITCODE -eq 0 -and $current -and $current.Trim() -and $current.Trim() -ne 'None') {
+      return $current.Trim()
+    }
+  } catch {
+    return $null
+  }
+
+  return $null
+}
+
+function Resolve-SecretName {
+  param([switch]$ForStackDeploy)
+
+  if ($SecretName) {
+    return $SecretName
+  }
+
+  if (-not $ForStackDeploy) {
+    $existing = Get-CurrentLambdaSecretName
+    if ($existing) {
+      Write-Host "Preserving existing Lambda secret name: $existing"
+      return $existing
+    }
+  }
+
+  $default = Get-DefaultSecretName
+  Write-Host "Using default secret name: $default"
+  return $default
+}
+
 function Deploy-Stack {
+  $script:SecretName = Resolve-SecretName -ForStackDeploy
+
   if (-not (Test-Path $TemplateFile)) {
     throw "CloudFormation template not found: $TemplateFile"
   }
@@ -218,6 +263,8 @@ function Deploy-LambdaCode {
   ) | Out-Null
 
   Wait-LambdaUpdated
+
+  $script:SecretName = Resolve-SecretName
 
   Write-Host 'Updating Lambda configuration...'
   Invoke-LambdaConfigurationUpdate

@@ -17,6 +17,7 @@ import {
   type SlackPreviewDiagnosticPayload,
 } from './slack/slack-preview-diagnostic.js';
 import { sendSlackMessage } from './slack/slack-client.js';
+import { buildSlackWebhookPayload } from './slack/slack-webhook.js';
 import {
   logConfigurationLoaded,
   logSlackMessagePreview,
@@ -157,8 +158,17 @@ async function processAlert(
     message: preview.slackMessage,
   });
 
+  const slackPayload = buildSlackWebhookPayload(
+    {
+      alert,
+      lookbackMinutes: config.lookbackMinutes,
+      lokiLines: preview.lokiLines,
+    },
+    config.slackWebhookUrl,
+  );
+
   try {
-    await sendSlackMessage(config.slackWebhookUrl, { text: preview.slackMessage });
+    await sendSlackMessage(config.slackWebhookUrl, slackPayload);
   } catch (error) {
     const slackError = error instanceof Error ? error.message : String(error);
     console.error('Failed to send Slack notification', {

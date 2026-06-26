@@ -1,12 +1,10 @@
-const HTTP_TIMEOUT_MS = 10_000;
+import type { SlackWebhookPayload } from './slack-webhook.js';
 
-export interface SlackMessagePayload {
-  text: string;
-}
+const HTTP_TIMEOUT_MS = 10_000;
 
 export async function sendSlackMessage(
   webhookUrl: string,
-  message: SlackMessagePayload,
+  message: SlackWebhookPayload,
 ): Promise<void> {
   const response = await fetch(webhookUrl, {
     method: 'POST',

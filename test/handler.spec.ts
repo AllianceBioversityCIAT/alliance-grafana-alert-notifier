@@ -78,9 +78,14 @@ describe('handler', () => {
     expect(mockQueryLokiErrors).toHaveBeenCalledOnce();
     expect(mockSendSlackMessage).toHaveBeenCalledOnce();
 
-    const slackMessage = mockSendSlackMessage.mock.calls[0][1].text as string;
+    const slackPayload = mockSendSlackMessage.mock.calls[0][1] as {
+      text?: string;
+      alertname?: string;
+      job?: string;
+    };
+    const slackMessage = slackPayload.text ?? slackPayload.alertname ?? '';
     expect(slackMessage).toContain('Example Loki Error Alert');
-    expect(slackMessage).toContain('example-app');
+    expect(slackPayload.job ?? slackPayload.text).toContain('example-app');
   });
 
   it('returns 200 without querying Loki for resolved payload', async () => {
