@@ -77,13 +77,28 @@ function Invoke-AwsJson {
 
 function Build-Package {
   Write-Host 'Building and packaging Lambda...'
-  $buildOutput = npm run package 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $buildOutput | Write-Host
+
+  # npm writes notices to stderr; with $ErrorActionPreference=Stop that can abort the script.
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $buildOutput = & npm run package 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+
+  $buildText = ($buildOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
+  if ($exitCode -ne 0) {
+    if ($buildText) {
+      Write-Host $buildText
+    }
     throw 'Package build failed.'
   }
 
-  $buildOutput | Write-Host
+  if ($buildText) {
+    Write-Host $buildText
+  }
 
   $resolvedZip = if ($ZipPath) { $ZipPath } else { Join-Path $Root 'grafana-alert-lambda.zip' }
   if (-not (Test-Path $resolvedZip)) {
