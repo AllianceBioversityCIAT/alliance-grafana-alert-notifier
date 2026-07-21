@@ -88,11 +88,24 @@ export const alertSecret = {
   DEFAULT_ERROR_PATTERN: "ERROR",
 };
 
+export const bedrockConfig = {
+  enabled: false,
+  modelId: 'amazon.nova-micro-v1:0',
+  region: 'us-east-1',
+  maxTokens: 500,
+  confidenceThreshold: 0.6,
+  timeoutMs: 8000,
+  maxInputChars: 6000,
+  dateFormat: 'MM/DD/YYYY',
+  timezone: 'America/Bogota',
+};
+
 export const alertConfig = {
   lokiBaseUrl: alertSecret.LOKI_BASE_URL,
   slackWebhookUrl: alertSecret.SLACK_WEBHOOK_URL,
   lookbackMinutes: 5,
   errorPattern: alertSecret.DEFAULT_ERROR_PATTERN,
+  bedrock: bedrockConfig,
 };
 
 export const lokiQueryRangeResponse = {

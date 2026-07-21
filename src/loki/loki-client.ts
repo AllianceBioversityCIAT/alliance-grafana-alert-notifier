@@ -1,5 +1,6 @@
 import { buildLokiQuery } from './build-loki-query.js';
 import type { TimeWindow } from '../grafana/grafana-payload.types.js';
+import type { LokiLogEntry } from '../types/normalized-log-event.js';
 import { formatFetchError, logLokiQuery } from '../utils/diagnostic-log.js';
 
 const HTTP_TIMEOUT_MS = 10_000;
@@ -28,24 +29,32 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
-function parseLokiLines(payload: LokiQueryRangeResponse, limit: number): string[] {
-  const entries: Array<{ ts: bigint; line: string }> = [];
+function parseLokiEntries(
+  payload: LokiQueryRangeResponse,
+  limit: number,
+): LokiLogEntry[] {
+  const entries: LokiLogEntry[] = [];
 
   for (const stream of payload.data?.result ?? []) {
     for (const [timestamp, line] of stream.values ?? []) {
-      entries.push({ ts: BigInt(timestamp), line });
+      entries.push({
+        timestampNs: timestamp,
+        line,
+        labels: stream.stream,
+      });
     }
   }
 
   return entries
-    .sort((a, b) => (a.ts > b.ts ? -1 : a.ts < b.ts ? 1 : 0))
-    .slice(0, limit)
-    .map((entry) => entry.line);
+    .sort((a, b) =>
+      a.timestampNs > b.timestampNs ? -1 : a.timestampNs < b.timestampNs ? 1 : 0,
+    )
+    .slice(0, limit);
 }
 
 export async function queryLokiErrors(
   input: QueryLokiErrorsInput,
-): Promise<string[]> {
+): Promise<LokiLogEntry[]> {
   const limit = input.limit ?? DEFAULT_LIMIT;
   const query = buildLokiQuery(input.job, input.errorPattern);
   const url = new URL(
@@ -84,5 +93,9 @@ export async function queryLokiErrors(
   }
 
   const payload = (await response.json()) as LokiQueryRangeResponse;
-  return parseLokiLines(payload, limit);
+  return parseLokiEntries(payload, limit);
+}
+
+export function toLokiLines(entries: LokiLogEntry[]): string[] {
+  return entries.map((entry) => entry.line);
 }

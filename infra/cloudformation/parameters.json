@@ -10,5 +10,9 @@
   {
     "ParameterKey": "RoutePath",
     "ParameterValue": "/grafana/webhook"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
   }
 ]

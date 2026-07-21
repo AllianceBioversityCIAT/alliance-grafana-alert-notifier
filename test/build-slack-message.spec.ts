@@ -106,6 +106,64 @@ describe('buildSlackMessage', () => {
     expect(message).not.toContain('Panel:');
     expect(message).not.toContain('Alert:');
   });
+
+  it('builds an enriched Slack message for firing alerts', () => {
+    const message = buildSlackMessage({
+      alert: {
+        ...baseAlert,
+        alertname: 'PRMS Test - Loki Error Alert',
+        job: 'docker_prms_test',
+      },
+      lookbackMinutes: 5,
+      lokiLines: [],
+      enriched: true,
+      preprocessed: {
+        alertName: 'PRMS Test - Loki Error Alert',
+        status: 'firing',
+        job: 'docker_prms_test',
+        application: 'PRMS',
+        environment: 'test',
+        timezone: 'America/Bogota',
+        dateFormat: 'MM/DD/YYYY',
+        occurrences: 10,
+        firstOccurrence: '07/09/2026, 9:00:31 PM',
+        lastOccurrence: '07/09/2026, 9:00:46 PM',
+        firstOccurrenceNs: null,
+        lastOccurrenceNs: null,
+        representativeLogs: ['ERROR sample'],
+      },
+      analysis: {
+        usuario: null,
+        modulo: 'System',
+        momento: '2026-07-09T21:00:46-05:00',
+        caso: 'Authorization token is required',
+        tipoError: 'HttpException',
+        confianza: {
+          usuario: 0,
+          modulo: 1,
+          momento: 1,
+          caso: 0.98,
+        },
+        evidencia: {
+          usuario: null,
+          modulo: '[System]',
+          momento: '07/09/2026, 9:00:46 PM',
+          caso: 'HttpException: Authorization token is required',
+        },
+      },
+    });
+
+    expect(message).toContain('🚨 PRMS Test – Error detectado');
+    expect(message).toContain('Estado: Activo');
+    expect(message).toContain('Aplicación: PRMS');
+    expect(message).toContain('Ambiente: Test');
+    expect(message).toContain('Módulo: System');
+    expect(message).toContain('Usuario: No identificado');
+    expect(message).toContain('Tipo de error: HttpException');
+    expect(message).toContain('Ocurrencias: 10');
+    expect(message).toContain('Primera ocurrencia: 9:00:31 PM');
+    expect(message).toContain('Última ocurrencia: 9:00:46 PM');
+  });
 });
 
 describe('buildSlackWorkflowPayload', () => {

@@ -158,11 +158,22 @@ async function processAlert(
     message: preview.slackMessage,
   });
 
+  if (preview.bedrockFallbackReason && preview.bedrockFallbackReason !== 'bedrock_disabled') {
+    console.info('Using legacy Slack message after Bedrock fallback', {
+      job: alert.job,
+      alertname: alert.alertname,
+      reason: preview.bedrockFallbackReason,
+    });
+  }
+
   const slackPayload = buildSlackWebhookPayload(
     {
       alert,
       lookbackMinutes: config.lookbackMinutes,
       lokiLines: preview.lokiLines,
+      preprocessed: preview.preprocessed,
+      analysis: preview.analysis,
+      enriched: Boolean(preview.usedBedrock && preview.analysis && preview.preprocessed),
     },
     config.slackWebhookUrl,
   );

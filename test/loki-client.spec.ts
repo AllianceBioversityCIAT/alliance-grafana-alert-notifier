@@ -46,12 +46,12 @@ describe('queryLokiErrors', () => {
     expect(options?.signal).toBeDefined();
   });
 
-  it('returns parsed log lines from Loki response', async () => {
+  it('returns parsed log entries from Loki response', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify(lokiQueryRangeResponse), { status: 200 }),
     );
 
-    const lines = await queryLokiErrors({
+    const entries = await queryLokiErrors({
       baseUrl: 'http://loki:3100',
       job: 'example-app',
       errorPattern: 'ERROR',
@@ -59,9 +59,17 @@ describe('queryLokiErrors', () => {
       limit: 10,
     });
 
-    expect(lines).toEqual([
-      '2026-06-22T20:01:40Z ERROR something bad',
-      '2026-06-22T20:01:38Z ERROR another issue',
+    expect(entries).toEqual([
+      {
+        timestampNs: '1719086500000000000',
+        line: '2026-06-22T20:01:40Z ERROR something bad',
+        labels: { job: 'example-app' },
+      },
+      {
+        timestampNs: '1719086498000000000',
+        line: '2026-06-22T20:01:38Z ERROR another issue',
+        labels: { job: 'example-app' },
+      },
     ]);
   });
 
@@ -111,7 +119,7 @@ describe('queryLokiErrors', () => {
       ),
     );
 
-    const lines = await queryLokiErrors({
+    const entries = await queryLokiErrors({
       baseUrl: 'http://loki:3100',
       job: 'example-app',
       errorPattern: 'ERROR',
@@ -119,6 +127,10 @@ describe('queryLokiErrors', () => {
       limit: 3,
     });
 
-    expect(lines).toEqual(['line-5', 'line-4', 'line-3']);
+    expect(entries.map((entry) => entry.line)).toEqual([
+      'line-5',
+      'line-4',
+      'line-3',
+    ]);
   });
 });

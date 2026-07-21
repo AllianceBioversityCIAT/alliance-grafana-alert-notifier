@@ -15,9 +15,15 @@ vi.mock('../src/config/get-config.js', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...args),
 }));
 
-vi.mock('../src/loki/loki-client.js', () => ({
-  queryLokiErrors: (...args: unknown[]) => mockQueryLokiErrors(...args),
-}));
+vi.mock('../src/loki/loki-client.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/loki/loki-client.js')>(
+    '../src/loki/loki-client.js',
+  );
+  return {
+    ...actual,
+    queryLokiErrors: (...args: unknown[]) => mockQueryLokiErrors(...args),
+  };
+});
 
 vi.mock('../src/slack/slack-client.js', () => ({
   sendSlackMessage: (...args: unknown[]) => mockSendSlackMessage(...args),
@@ -61,7 +67,10 @@ describe('handler', () => {
   beforeEach(() => {
     mockGetConfig.mockResolvedValue(alertConfig);
     mockQueryLokiErrors.mockResolvedValue([
-      '2026-06-22T20:01:40Z ERROR something bad',
+      {
+        timestampNs: '1719086500000000000',
+        line: '2026-06-22T20:01:40Z ERROR something bad',
+      },
     ]);
     mockSendSlackMessage.mockResolvedValue(undefined);
   });

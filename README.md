@@ -1,6 +1,6 @@
 # Grafana Alert Lambda
 
-Lightweight Node.js/TypeScript Lambda that receives Grafana alerts via API Gateway, queries Loki for the latest error log lines, and sends a summary to Slack.
+Lightweight Node.js/TypeScript Lambda that receives Grafana alerts via API Gateway, queries Loki for the latest error log lines, optionally enriches them with Amazon Bedrock, and sends a summary to Slack.
 
 ## Architecture
 
@@ -12,10 +12,14 @@ Grafana Alertmanager Webhook
         |
         v
    Lambda handler
-   +--> AWS Secrets Manager (config)
+   +--> AWS Secrets Manager (Loki/Slack config)
    +--> Loki /loki/api/v1/query_range
+   +--> Log preprocess (sanitize, redact, dedupe)
+   +--> Amazon Bedrock Converse (optional)
    +--> Slack Incoming Webhook
 ```
+
+Design details: [docs/bedrock-enrichment-plan.md](docs/bedrock-enrichment-plan.md).
 
 ## Requirements
 
@@ -23,12 +27,17 @@ Grafana Alertmanager Webhook
 - AWS Secrets Manager access from the Lambda execution role
 - Loki reachable from the Lambda VPC/network
 - Slack Incoming Webhook configured
+- (Optional) Amazon Bedrock model access for `amazon.nova-micro-v1:0` (or configured model)
 
 ## Environment variables
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `ALERTING_SECRET_NAME` | Yes | Name or ARN of the secret in AWS Secrets Manager (override via deploy script `-SecretName`) |
+| `ALERTING_SECRET_NAME` | Yes | Name or ARN of the secret in AWS Secrets Manager |
+
+Bedrock and log-normalization settings are **not** Lambda environment variables. They are loaded only from the Secrets Manager JSON (see below). Do not hardcode model IDs, regions, or thresholds in application code.
+
+Do not put AWS access keys or real secrets in the repository.
 
 ## Secret format
 
@@ -45,16 +54,38 @@ Create a JSON secret in AWS Secrets Manager with this structure:
   "LOKI_BASE_URL": "https://loki.example.com",
   "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/XXX/YYY/ZZZ",
   "LOOKBACK_MINUTES": "5",
-  "DEFAULT_ERROR_PATTERN": "ERROR"
+  "DEFAULT_ERROR_PATTERN": "ERROR",
+  "BEDROCK_ENABLED": "true",
+  "BEDROCK_MODEL_ID": "amazon.nova-micro-v1:0",
+  "BEDROCK_REGION": "us-east-1",
+  "BEDROCK_MAX_TOKENS": "500",
+  "BEDROCK_CONFIDENCE_THRESHOLD": "0.60",
+  "BEDROCK_TIMEOUT_MS": "8000",
+  "BEDROCK_MAX_INPUT_CHARS": "6000",
+  "LOG_DATE_FORMAT": "MM/DD/YYYY",
+  "LOG_TIMEZONE": "America/Bogota"
 }
 ```
 
-Required fields:
+Required always:
 
-- `LOKI_BASE_URL`: Loki base URL without a trailing slash
-- `SLACK_WEBHOOK_URL`: Slack Incoming Webhook URL
-- `LOOKBACK_MINUTES`: lookback window in minutes
-- `DEFAULT_ERROR_PATTERN`: pattern used in the LogQL filter (`|= "..."`)
+- `LOKI_BASE_URL`
+- `SLACK_WEBHOOK_URL`
+- `LOOKBACK_MINUTES`
+- `DEFAULT_ERROR_PATTERN`
+
+Required when `BEDROCK_ENABLED` is `"true"`:
+
+- `BEDROCK_MODEL_ID`
+- `BEDROCK_REGION`
+- `BEDROCK_MAX_TOKENS`
+- `BEDROCK_CONFIDENCE_THRESHOLD`
+- `BEDROCK_TIMEOUT_MS`
+- `BEDROCK_MAX_INPUT_CHARS`
+- `LOG_DATE_FORMAT`
+- `LOG_TIMEZONE`
+
+If `BEDROCK_ENABLED` is missing or `"false"`, Bedrock is skipped and the legacy Slack message is used. Values above are examples for the secret only — they are not hardcoded in the Lambda source.
 
 ## Grafana payload example
 
@@ -105,10 +136,31 @@ Required fields:
    - `direction=BACKWARD`
    - `start` / `end` as Unix nanoseconds
    - a maximum of 10 lines per alert
-6. Build and send a Slack message.
-7. If Loki fails, send Slack with Grafana metadata and an error note.
-8. If Slack fails, still respond with `200` and log the error to CloudWatch Logs.
-9. Do not print Slack webhook URLs or secrets in logs.
+6. Sanitize logs, redact secrets, deduplicate/group equivalent messages.
+7. If `BEDROCK_ENABLED=true`, call Amazon Bedrock (Nova Micro by default) for structured normalization. On any Bedrock failure, fall back to the legacy Slack message.
+8. Build and send a Slack message (enriched or legacy).
+9. If Loki fails or returns no lines, skip Slack and still respond with `200`.
+10. If Slack fails, still respond with `200` and log the error to CloudWatch Logs.
+11. Do not print Slack webhook URLs or secrets in logs.
+
+## Bedrock enrichment
+
+- Model / region / limits: configured **only** in Secrets Manager (`BEDROCK_*`, `LOG_*`)
+- API: Bedrock Runtime **Converse** (`temperature=0`)
+- Auth: Lambda IAM role (`bedrock:InvokeModel`, `bedrock:Converse`) — no access keys
+- Kill switch: set `"BEDROCK_ENABLED": "false"` in the secret (or omit the key)
+- Fallback: Bedrock errors never block Slack delivery when Loki lines are available
+
+### Enable after deploy
+
+1. Add the Bedrock keys to your secret (for example `dev/app/devops/grafana-alert/env`).
+2. Set `"BEDROCK_ENABLED": "true"`.
+3. Ensure the model is enabled in Bedrock for that region.
+4. No Lambda env vars are required beyond `ALERTING_SECRET_NAME`.
+
+### Approximate cost
+
+~500 alerts/day with short deduplicated prompts on Nova Micro is typically low (cents/day). Confirm current rates at [Amazon Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/).
 
 ## Project structure
 
@@ -120,9 +172,13 @@ src/
   grafana/
   loki/
   slack/
+  bedrock/
   utils/
+  types/
 test/
   *.spec.ts
+docs/
+  bedrock-enrichment-plan.md
 ```
 
 ## Development
@@ -172,6 +228,7 @@ Infrastructure is managed with **CloudFormation**. Application code is uploaded 
 2. Node.js 20+ and npm working locally
 3. Secret configured in AWS Secrets Manager (see secret format above)
 4. IAM permissions for CloudFormation, Lambda, IAM, API Gateway, and CloudWatch Logs
+5. (Optional) Bedrock model access enabled for the chosen model in the target region
 
 ### 1. Create the secret (one time)
 
@@ -202,10 +259,11 @@ npm run deploy:stack
 
 This creates or updates the stack `grafana-alert-lambda` with:
 
-- IAM role for Lambda
+- IAM role for Lambda (Secrets Manager + optional Bedrock)
 - Lambda function (placeholder code)
 - HTTP API Gateway route `POST /grafana/webhook`
 - CloudWatch log group
+- Tag `Project=grafana-alert-<environment>` on taggable resources (default environment: `dev`)
 
 Template: `infra/cloudformation/template.yaml`
 
@@ -216,8 +274,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 `
   -Action stack `
   -Region us-east-1 `
   -StackName grafana-alert-lambda `
-  -SecretName grafana-alert/env
+  -SecretName "dev/app/devops/grafana-alert/env" `
+  -Environment dev
 ```
+
+The stack applies tag `Project=grafana-alert-<Environment>` (for example `grafana-alert-dev`) to Lambda, IAM role, log group, HTTP API, and API stage.
 
 ### 3. Deploy application code
 
@@ -307,6 +368,15 @@ The Lambda execution role permission to read the secret is created by CloudForma
 arn:aws:secretsmanager:REGION:ACCOUNT:secret:YOUR_SECRET_NAME*
 ```
 
+Bedrock (foundation models / inference profiles in the stack region; model ID comes from the secret at runtime):
+
+```text
+bedrock:InvokeModel
+bedrock:Converse
+arn:aws:bedrock:REGION::foundation-model/*
+arn:aws:bedrock:REGION:ACCOUNT:inference-profile/*
+```
+
 ### Troubleshooting CloudFormation failures
 
 If `npm run deploy:stack` fails, inspect the events:
@@ -382,12 +452,20 @@ The Lambda execution role needs at least:
       "Effect": "Allow",
       "Action": ["secretsmanager:GetSecretValue"],
       "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:YOUR_SECRET*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:Converse"],
+      "Resource": [
+        "arn:aws:bedrock:REGION::foundation-model/*",
+        "arn:aws:bedrock:REGION:ACCOUNT:inference-profile/*"
+      ]
     }
   ]
 }
 ```
 
-If Loki runs in a private network, configure VPC, security groups, and a sufficient timeout (for example 15–30 seconds).
+If Loki runs in a private network, configure VPC, security groups, and a sufficient timeout (for example 15–45 seconds).
 
 ## API Gateway integration
 
@@ -398,7 +476,9 @@ Create an HTTP API with:
 - Integration: Lambda proxy
 - No authentication, or an authorizer according to your security policy
 
-## Slack message example
+## Slack message examples
+
+Legacy (Bedrock disabled or fallback):
 
 ```text
 :rotating_light: Example Loki Error Alert
@@ -416,10 +496,34 @@ Panel: https://grafana.example.com/d/panel/1
 Alert: https://grafana.example.com/alerting/grafana/test/uid/view
 ```
 
+Enriched (Bedrock enabled and successful):
+
+```text
+🚨 PRMS Test – Error detectado
+
+Estado: Activo
+Aplicación: PRMS
+Ambiente: Test
+Job: docker_prms_test
+
+Módulo: System
+Usuario: No identificado
+Tipo de error: HttpException
+
+Caso:
+Authorization token is required
+
+Ocurrencias: 10
+Primera ocurrencia: 9:00:31 PM
+Última ocurrencia: 9:00:46 PM
+```
+
 ## Test coverage
 
 - Grafana payload parsing
 - Loki query construction
-- Loki client (`query_range`)
-- Slack message construction
-- Main handler (`firing`, `resolved`, Loki/Slack error handling)
+- Loki client (`query_range`, timestamps preserved)
+- Log redaction / deduplication / preprocessing
+- Bedrock response validation and fallback
+- Slack message construction (legacy + enriched)
+- Main handler (`firing`, `resolved`, Bedrock on/off, Loki/Slack error handling)
