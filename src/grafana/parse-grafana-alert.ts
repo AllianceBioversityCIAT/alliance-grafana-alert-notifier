@@ -69,7 +69,10 @@ export function deduplicateAlerts(
   const grouped = new Map<string, ParsedGrafanaAlert>();
 
   for (const alert of alerts) {
-    const key = `${alert.job}::${alert.filename ?? ''}`;
+    // Dedupe by alertname+job only. Grafana often sends one series per Docker
+    // container filename; Loki is queried by job alone and the Slack body does
+    // not include filename, so job::filename produced identical duplicate posts.
+    const key = `${alert.alertname}::${alert.job}`;
     const existing = grouped.get(key);
 
     if (!existing) {

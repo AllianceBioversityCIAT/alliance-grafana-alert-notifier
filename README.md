@@ -125,7 +125,7 @@ If `BEDROCK_ENABLED` is missing or `"false"`, Bedrock is skipped and the legacy 
 
 1. If `status = "resolved"`, respond with `200` and do not query Loki or Slack.
 2. If `status = "firing"`, validate that at least one alert includes `labels.job`.
-3. Deduplicate alerts by `job + filename`.
+3. Deduplicate alerts by `alertname + job` (ignores per-container `filename` so Slack does not get identical duplicate posts).
 4. Query Loki with:
 
 ```logql
