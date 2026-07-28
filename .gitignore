@@ -8,4 +8,5 @@ coverage/
 .deploy/
 .deploy/*.json
 .node-runtime/
+.tools-node/
 package/

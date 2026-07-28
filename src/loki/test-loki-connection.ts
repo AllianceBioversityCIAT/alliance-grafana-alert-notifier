@@ -1,7 +1,7 @@
 import type { AlertConfig } from '../grafana/grafana-payload.types.js';
 import { getLokiHost, logLokiQuery } from '../utils/diagnostic-log.js';
 import { buildLokiQuery } from './build-loki-query.js';
-import { queryLokiErrors } from './loki-client.js';
+import { queryLokiErrors, toLokiLines } from './loki-client.js';
 import { getLookbackWindow } from '../utils/time-window.js';
 
 export interface LokiConnectionTestInput {
@@ -36,13 +36,14 @@ export async function testLokiConnection(
   });
 
   try {
-    const lines = await queryLokiErrors({
+    const entries = await queryLokiErrors({
       baseUrl: input.config.lokiBaseUrl,
       job: input.job,
       errorPattern: input.config.errorPattern,
       window,
       limit: input.limit ?? 5,
     });
+    const lines = toLokiLines(entries);
 
     return {
       success: true,

@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Grafana alert Lambda with HTTP API webhook, IAM role, and CloudWatch logs.
+Description: Grafana alert Lambda with HTTP API webhook, IAM role, CloudWatch logs, and optional Bedrock enrichment (Bedrock settings come from Secrets Manager).
 
 Parameters:
   SecretName:
     Type: String
     Default: grafana-alert/env
-    Description: Secrets Manager secret name used by the Lambda.
+    Description: Secrets Manager secret name used by the Lambda (includes Loki/Slack and optional Bedrock keys).
 
   FunctionName:
     Type: String
@@ -19,13 +19,23 @@ Parameters:
 
   LambdaTimeout:
     Type: Number
-    Default: 30
+    Default: 45
     Description: Lambda timeout in seconds.
 
   LambdaMemorySize:
     Type: Number
     Default: 256
     Description: Lambda memory size in MB.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - staging
+      - prod
+    Description: Deployment environment. Used for the Project tag (grafana-alert-<environment>).
 
 Resources:
   LambdaExecutionRole:
@@ -55,12 +65,27 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}*'
+              - Sid: InvokeBedrockModel
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:Converse
+                Resource:
+                  # Model ID is chosen at runtime from Secrets Manager; scope to foundation models in this region.
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
+      Tags:
+        - Key: Project
+          Value: !Sub 'grafana-alert-${Environment}'
 
   LambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${FunctionName}'
       RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: !Sub 'grafana-alert-${Environment}'
 
   LambdaFunction:
     Type: AWS::Lambda::Function
@@ -68,7 +93,7 @@ Resources:
       - LambdaLogGroup
     Properties:
       FunctionName: !Ref FunctionName
-      Description: Receives Grafana alerts, queries Loki, and sends Slack notifications.
+      Description: Receives Grafana alerts, queries Loki, optionally enriches with Bedrock (config from secret), and notifies Slack.
       Runtime: nodejs20.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -77,6 +102,9 @@ Resources:
       Environment:
         Variables:
           ALERTING_SECRET_NAME: !Ref SecretName
+      Tags:
+        - Key: Project
+          Value: !Sub 'grafana-alert-${Environment}'
       Code:
         ZipFile: |
           exports.handler = async () => ({
@@ -92,6 +120,8 @@ Resources:
     Properties:
       Name: !Sub '${FunctionName}-api'
       ProtocolType: HTTP
+      Tags:
+        Project: !Sub 'grafana-alert-${Environment}'
 
   HttpApiIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -114,6 +144,8 @@ Resources:
       ApiId: !Ref HttpApi
       StageName: $default
       AutoDeploy: true
+      Tags:
+        Project: !Sub 'grafana-alert-${Environment}'
 
   LambdaApiGatewayPermission:
     Type: AWS::Lambda::Permission
@@ -146,3 +178,11 @@ Outputs:
   SecretName:
     Description: Secrets Manager secret name configured in the Lambda.
     Value: !Ref SecretName
+
+  ProjectTag:
+    Description: Project tag applied to stack resources.
+    Value: !Sub 'grafana-alert-${Environment}'
+
+  Environment:
+    Description: Deployment environment used for the Project tag.
+    Value: !Ref Environment

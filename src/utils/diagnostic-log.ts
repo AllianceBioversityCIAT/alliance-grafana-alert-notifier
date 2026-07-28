@@ -18,6 +18,9 @@ export function logConfigurationLoaded(
     lookbackMinutes: config.lookbackMinutes,
     errorPattern: config.errorPattern,
     slackConfigured: config.slackWebhookUrl.length > 0,
+    bedrockEnabled: config.bedrock.enabled,
+    bedrockModelId: config.bedrock.enabled ? config.bedrock.modelId : undefined,
+    bedrockRegion: config.bedrock.enabled ? config.bedrock.region : undefined,
   });
 }
 

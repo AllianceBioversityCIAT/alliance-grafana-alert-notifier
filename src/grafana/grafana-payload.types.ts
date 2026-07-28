@@ -49,6 +49,27 @@ export interface AlertingSecret {
   SLACK_WEBHOOK_URL: string;
   LOOKBACK_MINUTES: string;
   DEFAULT_ERROR_PATTERN: string;
+  BEDROCK_ENABLED?: string;
+  BEDROCK_MODEL_ID?: string;
+  BEDROCK_REGION?: string;
+  BEDROCK_MAX_TOKENS?: string;
+  BEDROCK_CONFIDENCE_THRESHOLD?: string;
+  BEDROCK_TIMEOUT_MS?: string;
+  BEDROCK_MAX_INPUT_CHARS?: string;
+  LOG_DATE_FORMAT?: string;
+  LOG_TIMEZONE?: string;
+}
+
+export interface BedrockConfig {
+  enabled: boolean;
+  modelId: string;
+  region: string;
+  maxTokens: number;
+  confidenceThreshold: number;
+  timeoutMs: number;
+  maxInputChars: number;
+  dateFormat: string;
+  timezone: string;
 }
 
 export interface AlertConfig {
@@ -56,6 +77,7 @@ export interface AlertConfig {
   slackWebhookUrl: string;
   lookbackMinutes: number;
   errorPattern: string;
+  bedrock: BedrockConfig;
 }
 
 export interface TimeWindow {

@@ -87,19 +87,17 @@ describe('parseGrafanaAlert', () => {
 });
 
 describe('deduplicateAlerts', () => {
-  it('groups alerts by job and filename keeping the highest error count', () => {
+  it('groups alerts by alertname and job keeping the highest error count', () => {
     const parsed = parseGrafanaAlert(multiAlertPayload);
     expect(parsed.kind).toBe('firing');
     if (parsed.kind !== 'firing') return;
 
     const deduped = deduplicateAlerts(parsed.alerts);
 
-    expect(deduped).toHaveLength(2);
-    const sameFile = deduped.find(
-      (a) =>
-        a.filename ===
-        '/var/lib/docker/containers/abc123/container-cached.log',
-    );
-    expect(sameFile?.errorCount).toBe(8);
+    // Same alertname+job with different Docker filenames must collapse to one
+    // Slack post (Loki query and enriched message are job-scoped).
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0].job).toBe('example-app');
+    expect(deduped[0].errorCount).toBe(8);
   });
 });

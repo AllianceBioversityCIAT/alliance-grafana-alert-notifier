@@ -7,7 +7,9 @@ param(
   [string]$Region = 'us-east-1',
   [string]$SecretName = '',
   [string]$RoutePath = '/grafana/webhook',
-  [int]$Timeout = 30,
+  [ValidateSet('dev', 'test', 'staging', 'prod')]
+  [string]$Environment = 'dev',
+  [int]$Timeout = 45,
   [int]$MemorySize = 256,
   [string]$ZipPath = '',
   [string]$Profile = '',
@@ -75,13 +77,28 @@ function Invoke-AwsJson {
 
 function Build-Package {
   Write-Host 'Building and packaging Lambda...'
-  $buildOutput = npm run package 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $buildOutput | Write-Host
+
+  # npm writes notices to stderr; with $ErrorActionPreference=Stop that can abort the script.
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $buildOutput = & npm run package 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+
+  $buildText = ($buildOutput | ForEach-Object { "$_" }) -join [Environment]::NewLine
+  if ($exitCode -ne 0) {
+    if ($buildText) {
+      Write-Host $buildText
+    }
     throw 'Package build failed.'
   }
 
-  $buildOutput | Write-Host
+  if ($buildText) {
+    Write-Host $buildText
+  }
 
   $resolvedZip = if ($ZipPath) { $ZipPath } else { Join-Path $Root 'grafana-alert-lambda.zip' }
   if (-not (Test-Path $resolvedZip)) {
@@ -187,6 +204,7 @@ function Deploy-Stack {
     "SecretName=$SecretName",
     "FunctionName=$FunctionName",
     "RoutePath=$RoutePath",
+    "Environment=$Environment",
     "LambdaTimeout=$Timeout",
     "LambdaMemorySize=$MemorySize",
     '--no-fail-on-empty-changeset'
@@ -220,9 +238,14 @@ function Wait-LambdaUpdated {
   ) | Out-Null
 }
 
+function Build-LambdaEnvironmentArgument {
+  return "Variables={ALERTING_SECRET_NAME=$SecretName}"
+}
+
 function Invoke-LambdaConfigurationUpdate {
   $maxAttempts = 6
   $delaySeconds = 5
+  $environment = Build-LambdaEnvironmentArgument
 
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     try {
@@ -233,7 +256,7 @@ function Invoke-LambdaConfigurationUpdate {
         '--handler', 'dist/handler.handler',
         '--timeout', "$Timeout",
         '--memory-size', "$MemorySize",
-        '--environment', "Variables={ALERTING_SECRET_NAME=$SecretName}"
+        '--environment', $environment
       ) | Out-Null
       return
     } catch {
