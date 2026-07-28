@@ -50,8 +50,47 @@ export function extractApplicationMetadata(input: {
   };
 }
 
+/**
+ * Strip common alert suffixes so app/env tokens remain, e.g.:
+ * - "PRMS Test - Loki Error Alert" → "PRMS Test"
+ * - "Billing Prod - Error Alert" → "Billing Prod"
+ * - "Example Loki Error Alert" → "Example"
+ * - "Loki Error Alert" → ""
+ */
+function stripAlertSuffix(alertName: string): string {
+  const trimmed = alertName.trim();
+  if (/^(?:Loki\s+)?(?:Error\s+)?Alert$/i.test(trimmed)) {
+    return '';
+  }
+
+  return trimmed
+    .replace(/\s*[-–—]\s*(?:Loki\s+)?(?:Error\s+)?Alert\b.*$/i, '')
+    .replace(/\s+Loki\s+Error\s+Alert\b.*$/i, '')
+    .replace(/\s+Error\s+Alert\b.*$/i, '')
+    .replace(/\s*[-–—].*$/, '')
+    .trim();
+}
+
+function looksLikeStructuredAlertName(alertName: string): boolean {
+  if (/(?:[-–—]\s*)?(?:Loki\s+)?(?:Error\s+)?Alert\b/i.test(alertName)) {
+    return true;
+  }
+
+  const parts = alertName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    return false;
+  }
+
+  return ENV_TOKENS.has(parts[parts.length - 1].toLowerCase());
+}
+
 function parseAlertName(alertName: string): ExtractedMetadata {
-  const cleaned = alertName.replace(/\s*[-–—].*$/, '').trim();
+  // Free-form titles ("High error rate") are ignored so the job label can win.
+  if (!looksLikeStructuredAlertName(alertName)) {
+    return { application: null, environment: null };
+  }
+
+  const cleaned = stripAlertSuffix(alertName);
   const parts = cleaned.split(/\s+/).filter(Boolean);
 
   if (parts.length === 0) {

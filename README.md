@@ -499,23 +499,23 @@ Alert: https://grafana.example.com/alerting/grafana/test/uid/view
 Enriched (Bedrock enabled and successful):
 
 ```text
-🚨 PRMS Test – Error detectado
+🚨 PRMS Test – Error detected
 
-Estado: Activo
-Aplicación: PRMS
-Ambiente: Test
+Status: Active
+Application: PRMS
+Environment: Test
 Job: docker_prms_test
 
-Módulo: System
-Usuario: No identificado
-Tipo de error: HttpException
+Module: System
+User: Unidentified
+Error type: HttpException
 
-Caso:
+Summary:
 Authorization token is required
 
-Ocurrencias: 10
-Primera ocurrencia: 9:00:31 PM
-Última ocurrencia: 9:00:46 PM
+Occurrences: 10
+First occurrence: 9:00:31 PM
+Last occurrence: 9:00:46 PM
 ```
 
 ## Test coverage

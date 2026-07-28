@@ -4,7 +4,7 @@ Rules:
 - Return ONLY a single JSON object. No markdown. No commentary.
 - Never invent information. If a value is not present or not confident enough, use null.
 - Do not infer user, endpoint, root cause, responsible application, attacker, or recommended solution without explicit evidence in the logs.
-- "caso" must be a short description of the observed event based only on the log content.
+- "caso" must be a short description of the observed event based only on the log content, written in English.
 - Include per-field confidence scores from 0 to 1 and the textual evidence used.
 
 Required JSON shape:

@@ -30,7 +30,7 @@ export interface SlackWorkflowPayload {
 
 function displayOrUnknown(value: string | null | undefined): string {
   if (value === null || value === undefined || value.trim() === '') {
-    return 'No identificado';
+    return 'Unidentified';
   }
   return value;
 }
@@ -43,12 +43,31 @@ function titleCase(value: string | null | undefined): string | null {
 }
 
 function statusLabel(status: string): string {
-  return status.toLowerCase() === 'resolved' ? 'Resuelto' : 'Activo';
+  return status.toLowerCase() === 'resolved' ? 'Resolved' : 'Active';
 }
 
-function buildEnrichedTitle(alertName: string): string {
-  const base = alertName.replace(/\s*[-–—]\s*Loki.*$/i, '').trim() || alertName;
-  return `🚨 ${base} – Error detectado`;
+/**
+ * Title uses application/environment extracted from alert name or job
+ * (e.g. "PRMS Test - Loki Error Alert" / "docker_prms_test"), not a fixed project label.
+ */
+function buildEnrichedTitle(
+  application: string | null,
+  environment: string | null,
+): string {
+  const parts: string[] = [];
+  if (application?.trim()) {
+    parts.push(application.trim());
+  }
+  const envLabel = titleCase(environment);
+  if (envLabel) {
+    parts.push(envLabel);
+  }
+
+  if (parts.length > 0) {
+    return `🚨 ${parts.join(' ')} – Error detected`;
+  }
+
+  return '🚨 Error detected';
 }
 
 export function buildEnrichedSlackMessage(input: {
@@ -58,36 +77,36 @@ export function buildEnrichedSlackMessage(input: {
 }): string {
   const { alert, preprocessed, analysis } = input;
   const lines: string[] = [
-    buildEnrichedTitle(alert.alertname),
+    buildEnrichedTitle(preprocessed.application, preprocessed.environment),
     '',
-    `Estado: ${statusLabel(alert.status)}`,
+    `Status: ${statusLabel(alert.status)}`,
   ];
 
   if (preprocessed.application) {
-    lines.push(`Aplicación: ${preprocessed.application}`);
+    lines.push(`Application: ${preprocessed.application}`);
   }
   if (preprocessed.environment) {
-    lines.push(`Ambiente: ${titleCase(preprocessed.environment)}`);
+    lines.push(`Environment: ${titleCase(preprocessed.environment)}`);
   }
 
   lines.push(`Job: ${alert.job}`);
   lines.push('');
-  lines.push(`Módulo: ${displayOrUnknown(analysis.modulo)}`);
-  lines.push(`Usuario: ${displayOrUnknown(analysis.usuario)}`);
-  lines.push(`Tipo de error: ${displayOrUnknown(analysis.tipoError)}`);
+  lines.push(`Module: ${displayOrUnknown(analysis.modulo)}`);
+  lines.push(`User: ${displayOrUnknown(analysis.usuario)}`);
+  lines.push(`Error type: ${displayOrUnknown(analysis.tipoError)}`);
   lines.push('');
-  lines.push('Caso:');
+  lines.push('Summary:');
   lines.push(displayOrUnknown(analysis.caso));
   lines.push('');
-  lines.push(`Ocurrencias: ${preprocessed.occurrences}`);
+  lines.push(`Occurrences: ${preprocessed.occurrences}`);
 
   const first = formatDisplayTime(preprocessed.firstOccurrence);
   const last = formatDisplayTime(preprocessed.lastOccurrence);
   if (first) {
-    lines.push(`Primera ocurrencia: ${first}`);
+    lines.push(`First occurrence: ${first}`);
   }
   if (last) {
-    lines.push(`Última ocurrencia: ${last}`);
+    lines.push(`Last occurrence: ${last}`);
   }
 
   if (alert.panelURL) {

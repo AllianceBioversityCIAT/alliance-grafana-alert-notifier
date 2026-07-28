@@ -153,16 +153,119 @@ describe('buildSlackMessage', () => {
       },
     });
 
-    expect(message).toContain('🚨 PRMS Test – Error detectado');
-    expect(message).toContain('Estado: Activo');
-    expect(message).toContain('Aplicación: PRMS');
-    expect(message).toContain('Ambiente: Test');
-    expect(message).toContain('Módulo: System');
-    expect(message).toContain('Usuario: No identificado');
-    expect(message).toContain('Tipo de error: HttpException');
-    expect(message).toContain('Ocurrencias: 10');
-    expect(message).toContain('Primera ocurrencia: 9:00:31 PM');
-    expect(message).toContain('Última ocurrencia: 9:00:46 PM');
+    expect(message).toContain('🚨 PRMS Test – Error detected');
+    expect(message).toContain('Status: Active');
+    expect(message).toContain('Application: PRMS');
+    expect(message).toContain('Environment: Test');
+    expect(message).toContain('Module: System');
+    expect(message).toContain('User: Unidentified');
+    expect(message).toContain('Error type: HttpException');
+    expect(message).toContain('Occurrences: 10');
+    expect(message).toContain('First occurrence: 9:00:31 PM');
+    expect(message).toContain('Last occurrence: 9:00:46 PM');
+  });
+
+  it('builds enriched title from application and environment metadata', () => {
+    const message = buildSlackMessage({
+      alert: {
+        ...baseAlert,
+        alertname: 'Billing Prod - Loki Error Alert',
+        job: 'docker_billing_prod',
+      },
+      lookbackMinutes: 5,
+      lokiLines: [],
+      enriched: true,
+      preprocessed: {
+        alertName: 'Billing Prod - Loki Error Alert',
+        status: 'firing',
+        job: 'docker_billing_prod',
+        application: 'Billing',
+        environment: 'prod',
+        timezone: 'America/Bogota',
+        dateFormat: 'MM/DD/YYYY',
+        occurrences: 3,
+        firstOccurrence: null,
+        lastOccurrence: null,
+        firstOccurrenceNs: null,
+        lastOccurrenceNs: null,
+        representativeLogs: ['ERROR sample'],
+      },
+      analysis: {
+        usuario: null,
+        modulo: 'Payments',
+        momento: null,
+        caso: 'Payment gateway timeout',
+        tipoError: 'TimeoutError',
+        confianza: {
+          usuario: 0,
+          modulo: 1,
+          momento: 0,
+          caso: 0.9,
+        },
+        evidencia: {
+          usuario: null,
+          modulo: '[Payments]',
+          momento: null,
+          caso: 'TimeoutError: gateway',
+        },
+      },
+    });
+
+    expect(message).toContain('🚨 Billing Prod – Error detected');
+    expect(message).toContain('Application: Billing');
+    expect(message).toContain('Environment: Prod');
+    expect(message).not.toContain('PRMS');
+  });
+
+  it('falls back to a generic enriched title when metadata is missing', () => {
+    const message = buildSlackMessage({
+      alert: {
+        ...baseAlert,
+        alertname: 'Generic Error Alert',
+        job: 'unknown',
+      },
+      lookbackMinutes: 5,
+      lokiLines: [],
+      enriched: true,
+      preprocessed: {
+        alertName: 'Generic Error Alert',
+        status: 'firing',
+        job: 'unknown',
+        application: null,
+        environment: null,
+        timezone: 'America/Bogota',
+        dateFormat: 'MM/DD/YYYY',
+        occurrences: 1,
+        firstOccurrence: null,
+        lastOccurrence: null,
+        firstOccurrenceNs: null,
+        lastOccurrenceNs: null,
+        representativeLogs: ['ERROR sample'],
+      },
+      analysis: {
+        usuario: null,
+        modulo: null,
+        momento: null,
+        caso: 'Something failed',
+        tipoError: null,
+        confianza: {
+          usuario: 0,
+          modulo: 0,
+          momento: 0,
+          caso: 0.5,
+        },
+        evidencia: {
+          usuario: null,
+          modulo: null,
+          momento: null,
+          caso: null,
+        },
+      },
+    });
+
+    expect(message).toContain('🚨 Error detected');
+    expect(message).not.toContain('Application:');
+    expect(message).not.toContain('Environment:');
   });
 });
 
