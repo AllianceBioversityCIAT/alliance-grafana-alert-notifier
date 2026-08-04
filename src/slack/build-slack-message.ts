@@ -3,6 +3,8 @@ import type {
   BedrockNormalizedEvent,
   PreprocessedLogEvent,
 } from '../types/normalized-log-event.js';
+import { deduplicateLogLines } from '../utils/log-deduplicator.js';
+import { redactSecrets } from '../utils/log-redactor.js';
 import { formatDisplayTime } from '../utils/metadata-extractor.js';
 import { sanitizeLogLines } from '../utils/sanitize-log-line.js';
 
@@ -26,6 +28,24 @@ export interface SlackWorkflowPayload {
   latestErrors: string;
   message: string;
   alertUrl: string;
+}
+
+/**
+ * Sanitize, redact, and collapse equivalent log lines for display.
+ *
+ * Loki returns newest-first, and deduplicateLogLines keeps insertion order, so
+ * the result stays newest-first and each group is represented by its most
+ * recent line. Repeated lines are prefixed with their count instead of being
+ * repeated: an alert with ten identical errors was showing ten identical lines.
+ */
+function formatLatestErrorLines(lokiLines: string[]): string[] {
+  const cleaned = sanitizeLogLines(lokiLines).map(redactSecrets);
+
+  return deduplicateLogLines(cleaned).map((group) =>
+    group.occurrences > 1
+      ? `(x${group.occurrences}) ${group.firstLine}`
+      : group.firstLine,
+  );
 }
 
 function displayOrUnknown(value: string | null | undefined): string {
@@ -129,7 +149,7 @@ export function buildSlackMessage(input: BuildSlackMessageInput): string {
     });
   }
 
-  const sanitizedLines = sanitizeLogLines(input.lokiLines);
+  const sanitizedLines = formatLatestErrorLines(input.lokiLines);
 
   const lines: string[] = [
     `:rotating_light: ${input.alert.alertname}`,
@@ -172,7 +192,7 @@ export function buildSlackMessage(input: BuildSlackMessageInput): string {
 export function buildSlackWorkflowPayload(
   input: BuildSlackMessageInput,
 ): SlackWorkflowPayload {
-  const sanitizedLines = sanitizeLogLines(input.lokiLines);
+  const sanitizedLines = formatLatestErrorLines(input.lokiLines);
   const message = buildSlackMessage(input);
 
   return {

@@ -74,6 +74,51 @@ describe('buildSlackMessage', () => {
     expect(message).not.toContain('stdout');
   });
 
+  it('collapses repeated log lines into a single counted line', () => {
+    const repeated =
+      '[Nest] 25 - 08/04/2026, 8:11:18 PM ERROR [System] HttpException: Authorization token is required';
+
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [repeated, repeated, repeated, 'ERROR a different failure'],
+    });
+
+    expect(message).toContain(`(x3) ${repeated}`);
+    expect(message).toContain('ERROR a different failure');
+    // The distinct line keeps no counter, and the repeated one appears once.
+    expect(message).not.toContain('(x1)');
+    expect(message.split(repeated)).toHaveLength(2);
+  });
+
+  it('groups lines that differ only by timestamp', () => {
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [
+        '[Nest] 25 - 08/04/2026, 8:11:20 PM ERROR [System] HttpException: token required',
+        '[Nest] 25 - 08/04/2026, 8:11:18 PM ERROR [System] HttpException: token required',
+      ],
+    });
+
+    // Newest line represents the group, since Loki returns newest-first.
+    expect(message).toContain('(x2) [Nest] 25 - 08/04/2026, 8:11:20 PM');
+    expect(message).not.toContain('8:11:18 PM');
+  });
+
+  it('redacts secrets from log lines before they reach Slack', () => {
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [
+        'ERROR request failed Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example',
+      ],
+    });
+
+    expect(message).toContain('[REDACTED]');
+    expect(message).not.toContain('eyJhbGciOi');
+  });
+
   it('includes a Loki failure note when lines are unavailable', () => {
     const message = buildSlackMessage({
       alert: baseAlert,
@@ -288,5 +333,17 @@ describe('buildSlackWorkflowPayload', () => {
       message: expect.stringContaining('Example Loki Error Alert'),
       alertUrl: 'https://grafana.example.com/alerting/grafana/test/uid/view',
     });
+  });
+
+  it('collapses repeated lines in the latestErrors field', () => {
+    const repeated = 'ERROR [System] HttpException: Authorization token is required';
+
+    const payload = buildSlackWorkflowPayload({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [repeated, repeated, repeated],
+    });
+
+    expect(payload.latestErrors).toBe(`(x3) ${repeated}`);
   });
 });
