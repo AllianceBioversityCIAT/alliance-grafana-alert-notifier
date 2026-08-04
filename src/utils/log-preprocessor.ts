@@ -89,12 +89,18 @@ function truncateRepresentativeLogs(
 export function preprocessLogs(
   input: PreprocessLogsInput,
 ): PreprocessedLogEvent {
+  // Loki answers newest-first (direction=BACKWARD). Sort chronologically before
+  // grouping so index order means "older to newer": first/last occurrence, stack
+  // trace grouping, and the representative line all depend on it.
   const cleaned = input.entries
     .map((entry) => ({
       ...entry,
       line: redactSecrets(sanitizeLogLine(entry.line)),
     }))
-    .filter((entry) => entry.line.length > 0);
+    .filter((entry) => entry.line.length > 0)
+    .sort((a, b) =>
+      a.timestampNs < b.timestampNs ? -1 : a.timestampNs > b.timestampNs ? 1 : 0,
+    );
 
   const logicalLines = groupStackTraces(cleaned.map((entry) => entry.line));
   const groups = deduplicateLogLines(logicalLines);
@@ -124,12 +130,8 @@ export function preprocessLogs(
     ? extractTimestampFromLogLine(lastGroup.lastLine)
     : null;
 
-  const sortedEntries = [...cleaned].sort((a, b) =>
-    a.timestampNs < b.timestampNs ? -1 : a.timestampNs > b.timestampNs ? 1 : 0,
-  );
-
-  const firstEntry = sortedEntries[0];
-  const lastEntry = sortedEntries.at(-1);
+  const firstEntry = cleaned[0];
+  const lastEntry = cleaned.at(-1);
 
   const firstOccurrence =
     firstOccurrenceFromLogs ??
