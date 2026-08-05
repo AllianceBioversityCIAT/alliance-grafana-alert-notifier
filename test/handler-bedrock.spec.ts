@@ -118,10 +118,10 @@ describe('handler bedrock enrichment', () => {
     expect(mockSendSlackMessage).toHaveBeenCalledOnce();
 
     const [, payload] = mockSendSlackMessage.mock.calls[0];
-    expect(payload.text).toContain('Error detectado');
-    expect(payload.text).toContain('Módulo: System');
-    expect(payload.text).toContain('Usuario: No identificado');
-    expect(payload.text).toContain('Estado: Activo');
+    expect(payload.text).toContain('Error detected');
+    expect(payload.text).toContain('Module: System');
+    expect(payload.text).toContain('User: Unidentified');
+    expect(payload.text).toContain('Status: Active');
   });
 
   it('falls back to legacy Slack message when Bedrock fails', async () => {
@@ -138,7 +138,7 @@ describe('handler bedrock enrichment', () => {
     const [, payload] = mockSendSlackMessage.mock.calls[0];
     expect(payload.text).toContain(':rotating_light:');
     expect(payload.text).toContain('Latest Loki errors:');
-    expect(payload.text).not.toContain('Error detectado');
+    expect(payload.text).not.toContain('Error detected');
   });
 
   it('uses legacy flow when Bedrock is disabled', async () => {

@@ -1,5 +1,7 @@
 import { analyzeLogsWithBedrock } from '../bedrock/bedrock-log-analyzer.js';
+import { buildLokiExploreUrl } from '../grafana/build-explore-url.js';
 import type { AlertConfig, ParsedGrafanaAlert } from '../grafana/grafana-payload.types.js';
+import { buildLokiQuery } from '../loki/build-loki-query.js';
 import { queryLokiErrors, toLokiLines } from '../loki/loki-client.js';
 import type {
   BedrockNormalizedEvent,
@@ -20,6 +22,7 @@ export interface SlackMessagePreviewResult {
   analysis?: BedrockNormalizedEvent | null;
   usedBedrock?: boolean;
   bedrockFallbackReason?: string;
+  exploreUrl?: string | null;
 }
 
 export async function previewSlackMessage(input: {
@@ -67,6 +70,14 @@ export async function previewSlackMessage(input: {
 
   const enriched = Boolean(usedBedrock && analysis && preprocessed);
 
+  const exploreUrl = buildLokiExploreUrl({
+    grafanaBaseUrl: input.config.grafanaBaseUrl,
+    lokiDatasourceUid: input.config.lokiDatasourceUid,
+    generatorURL: input.alert.generatorURL,
+    query: buildLokiQuery(input.alert.job, input.config.errorPattern),
+    window,
+  });
+
   const slackMessage = buildSlackMessage({
     alert: input.alert,
     lookbackMinutes: input.config.lookbackMinutes,
@@ -75,6 +86,7 @@ export async function previewSlackMessage(input: {
     preprocessed,
     analysis,
     enriched,
+    exploreUrl,
   });
 
   return {
@@ -85,5 +97,6 @@ export async function previewSlackMessage(input: {
     analysis,
     usedBedrock,
     bedrockFallbackReason,
+    exploreUrl,
   };
 }

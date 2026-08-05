@@ -63,7 +63,9 @@ Create a JSON secret in AWS Secrets Manager with this structure:
   "BEDROCK_TIMEOUT_MS": "8000",
   "BEDROCK_MAX_INPUT_CHARS": "6000",
   "LOG_DATE_FORMAT": "MM/DD/YYYY",
-  "LOG_TIMEZONE": "America/Bogota"
+  "LOG_TIMEZONE": "America/Bogota",
+  "GRAFANA_BASE_URL": "http://grafana.example.com:3000",
+  "LOKI_DATASOURCE_UID": "P8E9CDA4C4CF52E93"
 }
 ```
 
@@ -84,6 +86,11 @@ Required when `BEDROCK_ENABLED` is `"true"`:
 - `BEDROCK_MAX_INPUT_CHARS`
 - `LOG_DATE_FORMAT`
 - `LOG_TIMEZONE`
+
+Optional:
+
+- `GRAFANA_BASE_URL` — origin used to build the "Logs" deep link into Grafana Explore. When absent, the origin is inferred from the alert's own `generatorURL`.
+- `LOKI_DATASOURCE_UID` — Loki datasource UID, found in Grafana under *Connections → Data sources → Loki* (it is the last path segment of that page's URL). Without it no Explore link is produced; everything else is unaffected.
 
 If `BEDROCK_ENABLED` is missing or `"false"`, Bedrock is skipped and the legacy Slack message is used. Values above are examples for the secret only — they are not hardcoded in the Lambda source.
 
@@ -499,23 +506,23 @@ Alert: https://grafana.example.com/alerting/grafana/test/uid/view
 Enriched (Bedrock enabled and successful):
 
 ```text
-🚨 PRMS Test – Error detectado
+🚨 PRMS Test – Error detected
 
-Estado: Activo
-Aplicación: PRMS
-Ambiente: Test
+Status: Active
+Application: PRMS
+Environment: Test
 Job: docker_prms_test
 
-Módulo: System
-Usuario: No identificado
-Tipo de error: HttpException
+Module: System
+User: Unidentified
+Error type: HttpException
 
-Caso:
+Summary:
 Authorization token is required
 
-Ocurrencias: 10
-Primera ocurrencia: 9:00:31 PM
-Última ocurrencia: 9:00:46 PM
+Occurrences: 10
+First occurrence: 9:00:31 PM
+Last occurrence: 9:00:46 PM
 ```
 
 ## Test coverage

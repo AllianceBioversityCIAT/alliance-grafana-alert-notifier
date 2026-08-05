@@ -152,6 +152,8 @@ export async function getConfig(
     lookbackMinutes: parseLookbackMinutes(secret.LOOKBACK_MINUTES),
     errorPattern: secret.DEFAULT_ERROR_PATTERN.trim(),
     bedrock: getBedrockConfigFromSecret(secret),
+    grafanaBaseUrl: readOptionalString(secret, 'GRAFANA_BASE_URL'),
+    lokiDatasourceUid: readOptionalString(secret, 'LOKI_DATASOURCE_UID'),
   };
   cachedSecretName = secretName;
 

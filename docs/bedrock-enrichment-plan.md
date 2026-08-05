@@ -138,31 +138,31 @@ Expected fields (minimum):
 
 ### 5.4 Enriched Slack message
 
-Approximate format (product copy may remain in Spanish):
+Approximate format (product copy in English):
 
 ```text
-🚨 PRMS Test – Error detectado
+🚨 PRMS Test – Error detected
 
-Estado: Activo
-Aplicación: PRMS
-Ambiente: Test
+Status: Active
+Application: PRMS
+Environment: Test
 Job: docker_prms_test
 
-Módulo: System
-Usuario: No identificado
-Tipo de error: HttpException
+Module: System
+User: Unidentified
+Error type: HttpException
 
-Caso:
-La solicitud fue rechazada porque no se proporcionó el token de autorización requerido.
+Summary:
+The request was rejected because the required authorization token was not provided.
 
-Ocurrencias: 10
-Primera ocurrencia: 9:00:31 PM
-Última ocurrencia: 9:00:46 PM
+Occurrences: 10
+First occurrence: 9:00:31 PM
+Last occurrence: 9:00:46 PM
 ```
 
 Rules:
 
-- `null` → `No identificado`.
+- `null` → `Unidentified`.
 - Confidence below threshold → do not show as a confirmed value.
 - `BEDROCK_ENABLED=false` → legacy format unchanged.
 - Bedrock failure → legacy format (or preprocess without AI), without blocking Slack.

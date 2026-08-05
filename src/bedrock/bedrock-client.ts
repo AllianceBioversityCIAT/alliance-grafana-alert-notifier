@@ -20,6 +20,35 @@ export interface BedrockConverseResult {
   latencyMs?: number;
 }
 
+/**
+ * Clients are cached per region so warm invocations reuse the connection pool
+ * instead of paying a TLS handshake on every alert.
+ */
+const clientsByRegion = new Map<string, BedrockRuntimeClient>();
+
+function getClient(region: string): BedrockRuntimeClient {
+  const cached = clientsByRegion.get(region);
+  if (cached) {
+    return cached;
+  }
+
+  const client = new BedrockRuntimeClient({ region });
+  clientsByRegion.set(region, client);
+  return client;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.name === 'TimeoutError' ||
+    error.name === 'AbortError' ||
+    /aborted/i.test(error.message)
+  );
+}
+
 function extractText(output: ConverseCommandOutput): string {
   const content = output.output?.message?.content ?? [];
   const parts: string[] = [];
@@ -34,7 +63,7 @@ function extractText(output: ConverseCommandOutput): string {
 }
 
 export async function converseJson(input: BedrockConverseInput): Promise<BedrockConverseResult> {
-  const client = new BedrockRuntimeClient({ region: input.region });
+  const client = getClient(input.region);
 
   const command = new ConverseCommand({
     modelId: input.modelId,
@@ -52,14 +81,22 @@ export async function converseJson(input: BedrockConverseInput): Promise<Bedrock
   });
 
   const started = Date.now();
-  const response = await Promise.race([
-    client.send(command),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Bedrock converse timed out after ${input.timeoutMs}ms`));
-      }, input.timeoutMs);
-    }),
-  ]);
+  let response: ConverseCommandOutput;
+
+  try {
+    // AbortSignal.timeout uses an unref'd timer, so it never holds the event
+    // loop open, and aborting cancels the in-flight request instead of leaving
+    // it to finish and bill for a response nobody reads. Promise.race did
+    // neither: it only ignored the loser.
+    response = await client.send(command, {
+      abortSignal: AbortSignal.timeout(input.timeoutMs),
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`Bedrock converse timed out after ${input.timeoutMs}ms`);
+    }
+    throw error;
+  }
 
   const text = extractText(response);
   if (!text) {
