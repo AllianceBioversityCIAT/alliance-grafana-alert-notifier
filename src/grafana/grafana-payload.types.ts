@@ -58,6 +58,8 @@ export interface AlertingSecret {
   BEDROCK_MAX_INPUT_CHARS?: string;
   LOG_DATE_FORMAT?: string;
   LOG_TIMEZONE?: string;
+  GRAFANA_BASE_URL?: string;
+  LOKI_DATASOURCE_UID?: string;
 }
 
 export interface BedrockConfig {
@@ -78,6 +80,9 @@ export interface AlertConfig {
   lookbackMinutes: number;
   errorPattern: string;
   bedrock: BedrockConfig;
+  /** Optional: without both, the Slack message carries no Explore link. */
+  grafanaBaseUrl?: string;
+  lokiDatasourceUid?: string;
 }
 
 export interface TimeWindow {

@@ -85,9 +85,16 @@ Break these and you break production behavior or security:
   switch — only take effect on new containers. Recycle with `npm run deploy` or any
   `aws lambda update-function-configuration` call. Do not add a TTL.
 - **Two Slack payload shapes.** A webhook URL containing `/triggers/` gets a flat Workflow
-  payload (`alertname`, `job`, `latestErrors`, `message`, …); anything else gets `{text}`.
-  In the Workflow shape, raw log lines travel in `latestErrors` separately from the
-  enriched `message`, so the enriched format never has to embed them.
+  payload (`alertname`, `job`, `latestErrors`, `message`, `logsUrl`, …); anything else gets
+  `{text}`. In the Workflow shape, raw log lines travel in `latestErrors` separately from
+  `message`, which is built with `omitLogLines: true` so the block never prints twice — a
+  previous bug rendered the identical list in both fields. The `{text}` shape has no second
+  field, so there the lines stay inside the message.
+- **The Explore deep link is best-effort.** `buildLokiExploreUrl` returns `null` unless both
+  an origin (`GRAFANA_BASE_URL`, or inferred from `generatorURL`) and `LOKI_DATASOURCE_UID`
+  are available; the message then simply carries no `Logs:` line. It encodes params with
+  `encodeURIComponent`, not `URLSearchParams`, because the latter emits `+` for spaces and
+  a `decodeURIComponent` consumer would corrupt the LogQL expression.
 - **`occurrences` is not the true error count.** It counts log lines returned by Loki,
   capped at `LOKI_LINE_LIMIT = 10`. The real count from Grafana is `alert.values.B`,
   carried as `errorCount` in the Workflow payload.

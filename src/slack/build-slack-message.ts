@@ -16,6 +16,13 @@ export interface BuildSlackMessageInput {
   preprocessed?: PreprocessedLogEvent;
   analysis?: BedrockNormalizedEvent | null;
   enriched?: boolean;
+  /** Grafana Explore deep link; omitted when origin or datasource is unknown. */
+  exploreUrl?: string | null;
+  /**
+   * Skip the raw log block. Set for Workflow payloads, where the same lines
+   * already travel in `latestErrors` and would otherwise print twice.
+   */
+  omitLogLines?: boolean;
 }
 
 export interface SlackWorkflowPayload {
@@ -28,6 +35,7 @@ export interface SlackWorkflowPayload {
   latestErrors: string;
   message: string;
   alertUrl: string;
+  logsUrl: string;
 }
 
 /**
@@ -94,6 +102,7 @@ export function buildEnrichedSlackMessage(input: {
   alert: ParsedGrafanaAlert;
   preprocessed: PreprocessedLogEvent;
   analysis: BedrockNormalizedEvent;
+  exploreUrl?: string | null;
 }): string {
   const { alert, preprocessed, analysis } = input;
   const lines: string[] = [
@@ -129,8 +138,13 @@ export function buildEnrichedSlackMessage(input: {
     lines.push(`Last occurrence: ${last}`);
   }
 
-  if (alert.panelURL) {
+  if (input.exploreUrl || alert.panelURL || alert.generatorURL) {
     lines.push('');
+  }
+  if (input.exploreUrl) {
+    lines.push(`Logs: ${input.exploreUrl}`);
+  }
+  if (alert.panelURL) {
     lines.push(`Panel: ${alert.panelURL}`);
   }
   if (alert.generatorURL) {
@@ -146,6 +160,7 @@ export function buildSlackMessage(input: BuildSlackMessageInput): string {
       alert: input.alert,
       preprocessed: input.preprocessed,
       analysis: input.analysis,
+      exploreUrl: input.exploreUrl,
     });
   }
 
@@ -171,14 +186,21 @@ export function buildSlackMessage(input: BuildSlackMessageInput): string {
     lines.push('');
     lines.push('Could not retrieve Loki error details.');
     lines.push(`Reason: ${input.lokiError}`);
-  } else if (sanitizedLines.length > 0) {
+  } else if (!input.omitLogLines && sanitizedLines.length > 0) {
     lines.push('');
     lines.push('Latest Loki errors:');
     lines.push(...sanitizedLines);
   }
 
-  if (input.alert.panelURL) {
+  if (input.exploreUrl || input.alert.panelURL || input.alert.generatorURL) {
     lines.push('');
+  }
+
+  if (input.exploreUrl) {
+    lines.push(`Logs: ${input.exploreUrl}`);
+  }
+
+  if (input.alert.panelURL) {
     lines.push(`Panel: ${input.alert.panelURL}`);
   }
 
@@ -193,7 +215,10 @@ export function buildSlackWorkflowPayload(
   input: BuildSlackMessageInput,
 ): SlackWorkflowPayload {
   const sanitizedLines = formatLatestErrorLines(input.lokiLines);
-  const message = buildSlackMessage(input);
+
+  // The raw lines ship in `latestErrors`; embedding them in `message` too made
+  // the Workflow template print the same block twice.
+  const message = buildSlackMessage({ ...input, omitLogLines: true });
 
   return {
     alertname: input.alert.alertname,
@@ -208,5 +233,6 @@ export function buildSlackWorkflowPayload(
     latestErrors: sanitizedLines.join('\n'),
     message,
     alertUrl: input.alert.generatorURL ?? '',
+    logsUrl: input.exploreUrl ?? '',
   };
 }

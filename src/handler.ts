@@ -174,6 +174,7 @@ async function processAlert(
       preprocessed: preview.preprocessed,
       analysis: preview.analysis,
       enriched: Boolean(preview.usedBedrock && preview.analysis && preview.preprocessed),
+      exploreUrl: preview.exploreUrl,
     },
     config.slackWebhookUrl,
   );

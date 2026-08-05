@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildEnrichedSlackMessage,
   buildSlackMessage,
   buildSlackWorkflowPayload,
 } from '../src/slack/build-slack-message.js';
@@ -131,6 +132,45 @@ describe('buildSlackMessage', () => {
     expect(message).toContain('Connection refused');
     expect(message).toContain('Job: example-app');
     expect(message).not.toContain('Latest Loki errors:');
+  });
+
+  it('adds the Explore link to the legacy message', () => {
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: ['ERROR only line'],
+      exploreUrl: 'https://grafana.example.com/explore?schemaVersion=1&orgId=1',
+    });
+
+    expect(message).toContain(
+      'Logs: https://grafana.example.com/explore?schemaVersion=1&orgId=1',
+    );
+    // Both blocks survive: the link complements the lines, it does not replace them.
+    expect(message).toContain('Latest Loki errors:');
+  });
+
+  it('omits the Logs line when no Explore link could be built', () => {
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: ['ERROR only line'],
+      exploreUrl: null,
+    });
+
+    expect(message).not.toContain('Logs:');
+  });
+
+  it('omits the raw log block when asked to', () => {
+    const message = buildSlackMessage({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: ['ERROR only line'],
+      omitLogLines: true,
+    });
+
+    expect(message).not.toContain('Latest Loki errors:');
+    expect(message).not.toContain('ERROR only line');
+    expect(message).toContain('Job: example-app');
   });
 
   it('omits optional fields when not present', () => {
@@ -312,6 +352,49 @@ describe('buildSlackMessage', () => {
     expect(message).not.toContain('Application:');
     expect(message).not.toContain('Environment:');
   });
+
+  it('adds the Explore link to the enriched message', () => {
+    const message = buildEnrichedSlackMessage({
+      alert: baseAlert,
+      exploreUrl: 'https://grafana.example.com/explore?schemaVersion=1',
+      preprocessed: {
+        alertName: 'PRMS Test - Loki Error Alert',
+        status: 'firing',
+        job: 'docker_prms_test',
+        application: 'PRMS',
+        environment: 'test',
+        timezone: 'America/Bogota',
+        dateFormat: 'MM/DD/YYYY',
+        occurrences: 2,
+        firstOccurrence: null,
+        lastOccurrence: null,
+        firstOccurrenceNs: null,
+        lastOccurrenceNs: null,
+        representativeLogs: ['ERROR sample'],
+      },
+      analysis: {
+        usuario: null,
+        modulo: 'System',
+        momento: null,
+        caso: 'Something failed',
+        tipoError: 'HttpException',
+        confianza: { usuario: 0, modulo: 1, momento: 0, caso: 0.9 },
+        evidencia: {
+          usuario: null,
+          modulo: '[System]',
+          momento: null,
+          caso: null,
+        },
+      },
+    });
+
+    expect(message).toContain(
+      'Logs: https://grafana.example.com/explore?schemaVersion=1',
+    );
+    expect(message).toContain(
+      'Alert: https://grafana.example.com/alerting/grafana/test/uid/view',
+    );
+  });
 });
 
 describe('buildSlackWorkflowPayload', () => {
@@ -332,7 +415,48 @@ describe('buildSlackWorkflowPayload', () => {
       latestErrors: '2026-06-22T20:01:40Z ERROR something bad',
       message: expect.stringContaining('Example Loki Error Alert'),
       alertUrl: 'https://grafana.example.com/alerting/grafana/test/uid/view',
+      logsUrl: '',
     });
+  });
+
+  it('keeps the raw lines out of message, since latestErrors already carries them', () => {
+    const line = '2026-06-22T20:01:40Z ERROR something bad';
+
+    const payload = buildSlackWorkflowPayload({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [line],
+    });
+
+    expect(payload.latestErrors).toBe(line);
+    expect(payload.message).not.toContain('Latest Loki errors:');
+    expect(payload.message).not.toContain(line);
+  });
+
+  it('carries the Explore link in its own field', () => {
+    const payload = buildSlackWorkflowPayload({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: ['ERROR line'],
+      exploreUrl: 'https://grafana.example.com/explore?schemaVersion=1',
+    });
+
+    expect(payload.logsUrl).toBe(
+      'https://grafana.example.com/explore?schemaVersion=1',
+    );
+  });
+
+  it('still reports a Loki failure in message when there are no lines to carry', () => {
+    const payload = buildSlackWorkflowPayload({
+      alert: baseAlert,
+      lookbackMinutes: 5,
+      lokiLines: [],
+      lokiError: 'Connection refused',
+    });
+
+    expect(payload.latestErrors).toBe('');
+    expect(payload.message).toContain('Could not retrieve Loki error details');
+    expect(payload.message).toContain('Connection refused');
   });
 
   it('collapses repeated lines in the latestErrors field', () => {
