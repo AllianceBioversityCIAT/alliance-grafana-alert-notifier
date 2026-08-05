@@ -102,6 +102,12 @@ Break these and you break production behavior or security:
   are available; the message then simply carries no `Logs:` line. It encodes params with
   `encodeURIComponent`, not `URLSearchParams`, because the latter emits `+` for spaces and
   a `decodeURIComponent` consumer would corrupt the LogQL expression.
+- **Grafana's own links are re-homed onto `GRAFANA_BASE_URL`.** Grafana derives
+  `generatorURL` and `panelURL` from its `root_url`, which behind a reverse proxy is the
+  internal address (`http://host:3000/...`) while developers browse `https://host/...`.
+  `processAlert` runs `applyGrafanaBaseUrl` before anything reads the alert, so every URL
+  in the message shares one origin. Path, query and fragment are preserved, a configured
+  sub-path is kept, and with no `GRAFANA_BASE_URL` set the URLs pass through untouched.
 - **`occurrences` is not the true error count.** It counts log lines returned by Loki,
   capped at `LOKI_LINE_LIMIT = 10`. The real count from Grafana is `alert.values.B`,
   carried as `errorCount` in the Workflow payload.

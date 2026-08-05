@@ -1,3 +1,4 @@
+import { normalizeGrafanaBaseUrl } from './grafana-origin.js';
 import type { TimeWindow } from './grafana-payload.types.js';
 
 const DEFAULT_ORG_ID = '1';
@@ -26,9 +27,9 @@ function nsToMs(timestampNs: string): string {
 }
 
 function resolveBaseUrl(input: BuildLokiExploreUrlInput): string | null {
-  const configured = input.grafanaBaseUrl?.trim();
+  const configured = normalizeGrafanaBaseUrl(input.grafanaBaseUrl);
   if (configured) {
-    return configured.replace(/\/+$/, '');
+    return configured;
   }
 
   if (!input.generatorURL) {

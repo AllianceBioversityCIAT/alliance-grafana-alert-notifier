@@ -4,6 +4,7 @@ import type {
   Context,
 } from 'aws-lambda';
 import { getConfig } from './config/get-config.js';
+import { applyGrafanaBaseUrl } from './grafana/grafana-origin.js';
 import {
   deduplicateAlerts,
   parseGrafanaAlert,
@@ -98,7 +99,10 @@ async function handleSlackPreview(
     return jsonResponse(500, { message: 'Configuration error', error: message });
   }
 
-  const alert = buildPreviewAlert(body);
+  const alert = applyGrafanaBaseUrl(
+    buildPreviewAlert(body),
+    config.grafanaBaseUrl,
+  );
   logConfigurationLoaded(process.env.ALERTING_SECRET_NAME ?? '', config);
 
   const preview = await previewSlackMessage({ alert, config });
@@ -125,9 +129,12 @@ async function handleSlackPreview(
 }
 
 async function processAlert(
-  alert: ReturnType<typeof deduplicateAlerts>[number],
+  incoming: ReturnType<typeof deduplicateAlerts>[number],
   config: Awaited<ReturnType<typeof getConfig>>,
 ): Promise<void> {
+  // Re-home Grafana's own links before anything reads them, so every URL in the
+  // message shares the origin developers actually browse.
+  const alert = applyGrafanaBaseUrl(incoming, config.grafanaBaseUrl);
   const preview = await previewSlackMessage({ alert, config });
 
   if (preview.lokiError) {

@@ -97,6 +97,38 @@ describe('handler', () => {
     expect(slackPayload.job ?? slackPayload.text).toContain('example-app');
   });
 
+  it('re-homes Grafana links onto GRAFANA_BASE_URL so every URL shares one origin', async () => {
+    mockGetConfig.mockResolvedValue({
+      ...alertConfig,
+      grafanaBaseUrl: 'https://grafana.public.example.com',
+      lokiDatasourceUid: 'loki-uid-1',
+    });
+
+    await handler(buildEvent(firingPayload), context);
+
+    const message = (mockSendSlackMessage.mock.calls[0][1] as { text: string })
+      .text;
+
+    // The rule link arrives from Grafana on its internal origin; the Explore
+    // link is built from the configured one. Both must end up the same.
+    expect(message).toContain(
+      'Alert: https://grafana.public.example.com/alerting/grafana/test/uid/view',
+    );
+    expect(message).toContain('Logs: https://grafana.public.example.com/explore');
+    expect(message).not.toContain('https://grafana.example.com/');
+  });
+
+  it('leaves Grafana links untouched when no base URL is configured', async () => {
+    await handler(buildEvent(firingPayload), context);
+
+    const message = (mockSendSlackMessage.mock.calls[0][1] as { text: string })
+      .text;
+
+    expect(message).toContain(
+      'Alert: https://grafana.example.com/alerting/grafana/test/uid/view',
+    );
+  });
+
   it('returns 200 without querying Loki for resolved payload', async () => {
     const response = await handler(buildEvent(resolvedPayload), context);
 
