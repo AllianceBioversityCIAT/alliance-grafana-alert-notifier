@@ -169,15 +169,33 @@ export function formatNsTimestamp(
       minute: '2-digit',
       second: '2-digit',
       hour12: true,
+      // Without the offset a bare "2:01:33 PM" is unreadable across zones: the
+      // reader cannot tell whether it is their own clock or the container's.
+      timeZoneName: 'short',
     }).format(new Date(ms));
   } catch {
     return null;
   }
 }
 
+/**
+ * Trim the date away for display, keeping the clock and any zone label:
+ * "08/05/2026, 2:01:33 PM GMT-5" → "2:01:33 PM GMT-5".
+ *
+ * Splitting on the date separator rather than matching the clock alone is what
+ * preserves the trailing offset; the alert already states the day elsewhere.
+ */
 export function formatDisplayTime(value: string | null): string | null {
   if (!value) {
     return null;
+  }
+
+  const separator = value.indexOf(', ');
+  if (separator >= 0) {
+    const afterDate = value.slice(separator + 2).trim();
+    if (/\d{1,2}:\d{2}:\d{2}/.test(afterDate)) {
+      return afterDate;
+    }
   }
 
   const timeOnly = value.match(/(\d{1,2}:\d{2}:\d{2}\s*[AP]M)/i);

@@ -123,26 +123,25 @@ export function preprocessLogs(
     job: input.alert.job,
   });
 
-  const firstOccurrenceFromLogs = firstGroup
-    ? extractTimestampFromLogLine(firstGroup.firstLine)
-    : null;
-  const lastOccurrenceFromLogs = lastGroup
-    ? extractTimestampFromLogLine(lastGroup.lastLine)
-    : null;
-
   const firstEntry = cleaned[0];
   const lastEntry = cleaned.at(-1);
 
+  // Loki's nanosecond timestamp wins over the one embedded in the log text.
+  // The embedded one is a bare wall clock with no zone (containers log in UTC),
+  // so it cannot be converted to LOG_TIMEZONE — it can only be reprinted as-is,
+  // which showed 7:01 PM UTC to readers expecting 2:01 PM local. The Loki value
+  // is an absolute instant and renders correctly in any zone. Text extraction
+  // stays as the fallback for when no timezone is configured.
   const firstOccurrence =
-    firstOccurrenceFromLogs ??
     (firstEntry
       ? formatNsTimestamp(firstEntry.timestampNs, input.timezone)
-      : null);
+      : null) ??
+    (firstGroup ? extractTimestampFromLogLine(firstGroup.firstLine) : null);
   const lastOccurrence =
-    lastOccurrenceFromLogs ??
     (lastEntry
       ? formatNsTimestamp(lastEntry.timestampNs, input.timezone)
-      : null);
+      : null) ??
+    (lastGroup ? extractTimestampFromLogLine(lastGroup.lastLine) : null);
 
   const representativeLogs = truncateRepresentativeLogs(
     groups.map((group) => group.representativeLine),

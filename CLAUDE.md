@@ -90,6 +90,13 @@ Break these and you break production behavior or security:
   `message`, which is built with `omitLogLines: true` so the block never prints twice — a
   previous bug rendered the identical list in both fields. The `{text}` shape has no second
   field, so there the lines stay inside the message.
+- **Loki's nanosecond timestamp outranks the one inside the log line.** Containers log in
+  UTC and Nest prints a bare wall clock with no zone, so that text cannot be converted to
+  `LOG_TIMEZONE` — only reprinted, which showed readers 7:01 PM when their clock said 2:01
+  PM. `preprocessLogs` therefore formats `timestampNs` first and falls back to
+  `extractTimestampFromLogLine` only when no timezone is configured (Bedrock disabled).
+  Do not restore the old precedence. Fixtures must keep `timestampNs` consistent with the
+  clock embedded in the line, or they hide which source is being displayed.
 - **The Explore deep link is best-effort.** `buildLokiExploreUrl` returns `null` unless both
   an origin (`GRAFANA_BASE_URL`, or inferred from `generatorURL`) and `LOKI_DATASOURCE_UID`
   are available; the message then simply carries no `Logs:` line. It encodes params with
