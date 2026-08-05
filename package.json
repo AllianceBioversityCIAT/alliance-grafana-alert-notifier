@@ -1,0 +1,34 @@
+{
+  "name": "grafana-alert-lambda",
+  "version": "1.0.0",
+  "description": "Lightweight Lambda to receive Grafana alerts, query Loki, and notify Slack",
+  "type": "module",
+  "main": "dist/handler.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "npm run build && node scripts/package.mjs",
+    "deploy:stack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Action stack",
+    "deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Action deploy",
+    "deploy:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy.ps1 -Action all",
+    "test:loki:local": "npm run build && node scripts/test-loki-local.mjs",
+    "test:loki:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic loki",
+    "test:loki:webhook": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -Diagnostic loki",
+    "test:slack:preview:local": "npm run build && node scripts/test-slack-preview-local.mjs",
+    "test:slack:preview:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic slack-preview"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.149",
+    "@types/node": "^22.15.21",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.817.0",
+    "@aws-sdk/client-secrets-manager": "^3.817.0"
+  }
+}

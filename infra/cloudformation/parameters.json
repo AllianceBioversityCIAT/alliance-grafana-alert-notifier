@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "SecretName",
+    "ParameterValue": "grafana-alert/env"
+  },
+  {
+    "ParameterKey": "FunctionName",
+    "ParameterValue": "grafana-alert-lambda"
+  },
+  {
+    "ParameterKey": "RoutePath",
+    "ParameterValue": "/grafana/webhook"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  }
+]

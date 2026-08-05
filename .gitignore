@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.zip
+.env
+.env.*
+.DS_Store
+.deploy/
+.deploy/*.json
+.node-runtime/
+.tools-node/
+package/
