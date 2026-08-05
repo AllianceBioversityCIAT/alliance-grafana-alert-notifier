@@ -5,6 +5,8 @@ HTTP API, queries Loki for recent error lines, optionally normalizes them with A
 (Nova Micro via the Converse API), and posts to Slack. No web framework — only AWS SDK v3.
 
 Design rationale lives in `docs/bedrock-enrichment-plan.md`; operational docs in `README.md`.
+`docs/alert-history-plan.md` holds the not-yet-started plan for persisting alerts in DynamoDB and
+the weekly recurring-pattern report, plus a backlog of known rough edges.
 
 ## Commands
 
