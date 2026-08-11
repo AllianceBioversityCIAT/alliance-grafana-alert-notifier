@@ -9,8 +9,14 @@ param(
   [string]$RoutePath = '/grafana/webhook',
   [ValidateSet('dev', 'test', 'staging', 'prod')]
   [string]$Environment = 'dev',
-  [int]$Timeout = 45,
+  [int]$Timeout = 120,
   [int]$MemorySize = 256,
+  # The weekly report schedule ships disarmed: it needs weeks of stored alerts
+  # before its recurring-versus-new classification means anything.
+  [ValidateSet('ENABLED', 'DISABLED')]
+  [string]$ReportScheduleState = 'DISABLED',
+  [string]$ReportScheduleExpression = '',
+  [string]$ReportScheduleTimezone = '',
   # Empty by default: the template derives grafana-alert-history-<environment>.
   # Set this only to point a stack at a table name of your own choosing.
   [string]$HistoryTableName = '',
@@ -213,9 +219,19 @@ function Deploy-Stack {
   )
 
   # Passing an empty override would make the CLI drop the parameter rather than
-  # send an empty string, so only send it when the caller chose a name.
+  # send an empty string, so only send it when the caller chose a value.
   if ($HistoryTableName) {
     $commandArgs += "HistoryTableName=$HistoryTableName"
+  }
+
+  $commandArgs += "ReportScheduleState=$ReportScheduleState"
+
+  if ($ReportScheduleExpression) {
+    $commandArgs += "ReportScheduleExpression=$ReportScheduleExpression"
+  }
+
+  if ($ReportScheduleTimezone) {
+    $commandArgs += "ReportScheduleTimezone=$ReportScheduleTimezone"
   }
 
   $commandArgs += @(

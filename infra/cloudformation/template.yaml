@@ -19,8 +19,12 @@ Parameters:
 
   LambdaTimeout:
     Type: Number
-    Default: 45
-    Description: Lambda timeout in seconds.
+    Default: 120
+    Description: >-
+      Lambda timeout in seconds. Shared by the alert and weekly-report paths. The report
+      fans out DynamoDB queries across several weeks and then calls Bedrock, so this must
+      comfortably exceed REPORT_BEDROCK_TIMEOUT_MS. The alert path is unaffected: a Lambda
+      is billed for time used, not for the timeout ceiling.
 
   LambdaMemorySize:
     Type: Number
@@ -45,6 +49,32 @@ Parameters:
       grafana-alert-history-<environment>. DynamoDB table names are unique per account and
       region, so a fixed name across environments would make the second stack fail to create.
       Copy the resolved value into HISTORY_TABLE_NAME in that environment's secret.
+
+  ReportScheduleExpression:
+    Type: String
+    Default: cron(0 8 ? * MON *)
+    Description: >-
+      When the weekly report runs, in ReportScheduleTimezone. Defaults to Monday 08:00,
+      which reports the week that closed the previous night.
+
+  ReportScheduleTimezone:
+    Type: String
+    Default: America/Bogota
+    Description: >-
+      IANA timezone for the schedule. EventBridge Scheduler is timezone-aware, unlike
+      EventBridge Rules, so the run time does not drift with daylight saving. Keep this
+      aligned with LOG_TIMEZONE in the secret, which is what the report weeks are cut on.
+
+  ReportScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+    Description: >-
+      Deliberately DISABLED by default. The report needs two or three weeks of stored
+      alerts before its recurring-versus-new classification says anything useful; enable
+      it once {"diagnostic":"report"} shows the grouping is right.
 
 Conditions:
   HasExplicitHistoryTableName: !Not [!Equals [!Ref HistoryTableName, '']]
@@ -201,6 +231,58 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*'
 
+  # EventBridge Scheduler assumes a role rather than using the function's resource
+  # policy, so unlike API Gateway above it needs no AWS::Lambda::Permission.
+  ReportSchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                # Confused-deputy guard: without it, a schedule in any other account
+                # could ask Scheduler to assume this role.
+                aws:SourceAccount: !Ref 'AWS::AccountId'
+      Policies:
+        - PolicyName: grafana-alert-report-scheduler-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeReportLambda
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt LambdaFunction.Arn
+      Tags:
+        - Key: Project
+          Value: !Sub 'grafana-alert-${Environment}'
+
+  WeeklyReportSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${FunctionName}-weekly-report'
+      Description: Invokes the Lambda to build and post the weekly recurring-pattern report.
+      State: !Ref ReportScheduleState
+      ScheduleExpression: !Ref ReportScheduleExpression
+      ScheduleExpressionTimezone: !Ref ReportScheduleTimezone
+      FlexibleTimeWindow:
+        # A weekly digest has no reason to jitter, and an exact time makes it obvious
+        # when a run did not happen.
+        Mode: 'OFF'
+      Target:
+        Arn: !GetAtt LambdaFunction.Arn
+        RoleArn: !GetAtt ReportSchedulerRole.Arn
+        # The payload is the whole event: the handler normalizes this shape alongside
+        # the API Gateway one.
+        Input: '{"report":"weekly"}'
+        RetryPolicy:
+          MaximumRetryAttempts: 2
+          MaximumEventAgeInSeconds: 3600
+
 Outputs:
   WebhookUrl:
     Description: Grafana Alertmanager webhook URL.
@@ -228,6 +310,14 @@ Outputs:
   HistoryTableName:
     Description: DynamoDB alert-history table. Copy into HISTORY_TABLE_NAME in the secret.
     Value: !Ref AlertHistoryTable
+
+  WeeklyReportScheduleName:
+    Description: EventBridge schedule that triggers the weekly report.
+    Value: !Ref WeeklyReportSchedule
+
+  WeeklyReportScheduleState:
+    Description: Whether the weekly report schedule is currently armed.
+    Value: !Ref ReportScheduleState
 
   ProjectTag:
     Description: Project tag applied to stack resources.

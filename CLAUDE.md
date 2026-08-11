@@ -106,6 +106,19 @@ Break these and you break production behavior or security:
   group. A previous bug inverted first/last occurrence in every alert because the test
   fixture fed entries in ascending order — an order production never produces. **Test
   fixtures must preserve production ordering.**
+- **The weekly report schedule ships disarmed.** `ReportScheduleState` defaults to
+  `DISABLED` so the stack can be deployed long before the data exists to report on. Arm it
+  with `-ReportScheduleState ENABLED` once `{"diagnostic":"report"}` shows the grouping is
+  right. It is an `AWS::Scheduler::Schedule`, not an `AWS::Events::Rule`, because only
+  Scheduler is timezone-aware — a Rule is UTC-only and "Monday 8am Bogotá" would drift with
+  daylight saving. Scheduler assumes a role instead of using the function's resource
+  policy, so it needs no `AWS::Lambda::Permission`.
+- **`LambdaTimeout` is shared by both paths and defaults to 120s.** The report fans
+  DynamoDB queries across several weeks and then calls Bedrock, so it must exceed
+  `REPORT_BEDROCK_TIMEOUT_MS` with margin. Raising it costs nothing — a Lambda is billed
+  for time used, not for the ceiling. Note the report diagnostic over **HTTP** is still
+  bounded by API Gateway's 29s integration limit; `npm run test:report:lambda` passes
+  `-UseLambdaInvoke` and bypasses it.
 - **The config cache has no TTL, by design.** Cost of per-invocation Secrets Manager calls
   is not worth it. Consequence: secret changes — including the `BEDROCK_ENABLED=false` kill
   switch — only take effect on new containers. Recycle with `npm run deploy` or any
