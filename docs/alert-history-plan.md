@@ -1,11 +1,21 @@
 # Plan: alert history in DynamoDB and weekly pattern report
 
-Pre-implementation design document. Describes what will be built, what will not change, and how it will be validated.
+Design document, now largely implemented. Describes what was built, what did not change, and how
+it is validated.
 
-**Status:** phase 1 implemented on 2026-08-11, not yet deployed. Phase 2 remains deliberately
-deferred until real data exists.
+**Status as of 2026-08-11:**
 
-**Date:** 2026-08-05 (plan), 2026-08-11 (phase 1 implementation)
+- **Phase 1 — persistence: implemented and deployed** to test and prod. Alerts are accumulating
+  in `grafana-alert-history-test` and `grafana-alert-history-prod`.
+- **Phase 2 — weekly report: implemented, not deployed.** All code, tests and infrastructure are
+  in place. The stack is deployed as one batch once the whole feature is finished.
+- **Remaining: arming the schedule.** `ReportScheduleState` is `DISABLED` and `REPORT_ENABLED`
+  defaults to `false`, so deploying changes no behaviour. The report needs two or three complete
+  weeks of stored alerts before its recurring-versus-new classification says anything useful.
+  Validate the grouping with `{"diagnostic":"report"}` first, then arm it with
+  `-ReportScheduleState ENABLED`.
+
+**Date:** 2026-08-05 (plan), 2026-08-11 (phases 1 and 2 implemented)
 
 ### Where the implementation departs from this document
 
@@ -229,7 +239,26 @@ normalization groups correctly, *before* building the report on top of it. A com
 
 ## 3. Phase 2 — Weekly report
 
-Deferred until two or three weeks of data exist and the signature has been tuned with §2.6.
+**Implemented.** What follows was the design; these are the points where the build differs.
+
+| Departure | Why |
+| --- | --- |
+| The report needs its **own Slack incoming webhook**, and the handler answers 409 rather than falling back when the main URL is a Workflow trigger | This deployment's `SLACK_WEBHOOK_URL` is a Workflow trigger, whose variables are fixed per trigger and alert-specific. Posting `{text}` there would have rendered an empty message with a 200 and nothing in the logs. Both environments now have a dedicated incoming webhook pointing at the same channel as the alerts. |
+| **One message per application**, not one per table | The approved header names an application; each team reads only its own. |
+| New key `REPORT_STREAK_WEEKS` | The streak depth is a tunable and must come from the secret. Deriving it from `HISTORY_RETENTION_DAYS` would mean ~96 queries per run. |
+| `AWS::Scheduler::Schedule`, **not** `AWS::Events::Rule` | Rules are UTC-only, so "Monday 8am Bogotá" would drift with daylight saving against the `LOG_TIMEZONE` the weeks are cut on. Scheduler assumes a role, so no second `AWS::Lambda::Permission` is needed. |
+| `LambdaTimeout` raised 45s → 120s | Shared with the alert path. The report fans queries across several weeks then calls Bedrock, so the ceiling must exceed `REPORT_BEDROCK_TIMEOUT_MS` with margin. Billing is by time used, so this costs nothing. |
+| Two extra spec files beyond the four planned | `build-weekly-report.spec.ts` and `dynamodb-client.spec.ts`, the latter covering the pagination fix. |
+
+Weeks are ISO, Monday-based, labelled in `LOG_TIMEZONE`. Because partitions are keyed by the
+**UTC** date of `recordedAt`, an offset week touches eight UTC partitions rather than seven;
+`getReportWeek` returns the exact set the window spans and `filterToWindow` drops the
+neighbouring weeks' items that the edge partitions also hold.
+
+The original design deferred this phase until two or three weeks of data exist. That still
+governs **arming the schedule**, not writing the code: `ReportScheduleState` is `DISABLED` and
+`REPORT_ENABLED` defaults to `false`, so the feature ships dark and is switched on once
+`{"diagnostic":"report"}` confirms the grouping.
 
 EventBridge Scheduler invokes the same Lambda with `{"report":"weekly"}`. This needs one small
 change in `handler`: it currently expects an `APIGatewayProxyEventV2` and reads `event.body`, while
