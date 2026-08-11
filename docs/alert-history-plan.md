@@ -2,9 +2,40 @@
 
 Pre-implementation design document. Describes what will be built, what will not change, and how it will be validated.
 
-**Status:** not started. Phase 1 is ready to execute; phase 2 is deliberately deferred until real data exists.
+**Status:** phase 1 implemented on 2026-08-11, not yet deployed. Phase 2 remains deliberately
+deferred until real data exists.
 
-**Date:** 2026-08-05
+**Date:** 2026-08-05 (plan), 2026-08-11 (phase 1 implementation)
+
+### Where the implementation departs from this document
+
+Verified against the code before building; five points had drifted, and one design decision was
+changed by the user.
+
+1. **§2.2 field names.** `module`, `errorType`, `summary`, `user` do not exist.
+   `BedrockNormalizedEvent` uses Spanish: `modulo`, `tipoError`, `caso`, `usuario`. There is no
+   `summary` — `caso` is the closest. The stored item uses the real names.
+2. **§2.3 is now additive, not a restructure.** The record is *not* assembled across the function
+   and written once at the end. Three `recordSafely(...)` calls were inserted before the existing
+   exit points instead, so no existing Loki or Slack line was rewritten. The criterion was to
+   leave the working notification flow untouched.
+3. **§2.1 normalization.** `normalizeMessageKey` strips only the `[Nest] <pid>` prefix, not PIDs
+   generally. A rule the table omits proved **required**: bracketed bare numbers (`[15]`, `[28]`)
+   must collapse, or the motivating `ClarisaTaskService` pair would not share a signature.
+   Conversely the `code` substitution demands an explicit `:` or `=` separator, otherwise
+   `status code 500` would collapse into `status code 404` — the exact merge §2.1 forbids.
+4. **§2.4 also touches** the `AlertingSecret` type and `parseBoolean`, whose error message had
+   `BEDROCK_ENABLED` hardcoded.
+5. **§2.6** additionally required widening the `ValidateSet` in `scripts/test-loki-lambda.ps1`.
+6. **§2.5's fixed `grafana-alert-history` default was wrong.** DynamoDB table names are unique
+   per account and region, and this project deploys several stacks into one region
+   (`grafana-alert-lambda` for test, `grafana-alert-lambda-prod` for prod). A shared default
+   would have made the second stack fail to create. `HistoryTableName` now defaults to empty
+   and the template derives `grafana-alert-history-<environment>`, matching the convention
+   already used for the `Project` tag. An explicit value still overrides it.
+
+`alert.errorCount` is optional, so the stored attribute is nullable. The DynamoDB SDK is imported
+lazily, so the disabled default never pays for it at cold start.
 
 ---
 
@@ -151,9 +182,11 @@ parameters.
 `package.json` — add `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb` to `dependencies`.
 `scripts/package.mjs` already runs `npm install --omit=dev`, so packaging picks them up unchanged.
 
-**Operational note.** The table name ends up in two places: the CloudFormation parameter and the
-secret. That duplication is an unavoidable consequence of the "configuration comes only from
-Secrets Manager" invariant. After `npm run deploy:stack`, copy the value into the secret.
+**Operational note.** The table name ends up in two places: CloudFormation and the secret. That
+duplication is an unavoidable consequence of the "configuration comes only from Secrets Manager"
+invariant. After deploying a stack, read the `HistoryTableName` output and copy it into *that
+environment's* secret — each environment gets its own table, so each secret carries its own
+`HISTORY_TABLE_NAME`.
 
 ### 2.6 Diagnostic for validating the data
 

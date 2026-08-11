@@ -1,6 +1,7 @@
 import type {
   AlertConfig,
   BedrockConfig,
+  HistoryConfig,
 } from '../grafana/grafana-payload.types.js';
 import { getSecretJson } from '../secrets/get-secret.js';
 
@@ -17,6 +18,13 @@ const BEDROCK_SECRET_KEYS_WHEN_ENABLED = [
   'BEDROCK_MAX_INPUT_CHARS',
   'LOG_DATE_FORMAT',
   'LOG_TIMEZONE',
+] as const;
+
+const HISTORY_SECRET_KEYS_WHEN_ENABLED = [
+  'HISTORY_ENABLED',
+  'HISTORY_TABLE_NAME',
+  'HISTORY_REGION',
+  'HISTORY_RETENTION_DAYS',
 ] as const;
 
 function parseLookbackMinutes(value: string): number {
@@ -41,11 +49,12 @@ function readOptionalString(
 function requireSecretString(
   secret: Record<string, string>,
   key: string,
+  feature = 'Bedrock',
 ): string {
   const value = readOptionalString(secret, key);
   if (!value) {
     throw new Error(
-      `Secret is missing required key when Bedrock is enabled: ${key}`,
+      `Secret is missing required key when ${feature} is enabled: ${key}`,
     );
   }
   return value;
@@ -67,7 +76,11 @@ function parseConfidenceThreshold(value: string): number {
   return parsed;
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+function parseBoolean(
+  value: string | undefined,
+  fallback: boolean,
+  key = 'BEDROCK_ENABLED',
+): boolean {
   if (value === undefined || value.trim() === '') {
     return fallback;
   }
@@ -78,7 +91,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (['0', 'false', 'no', 'off'].includes(normalized)) {
     return false;
   }
-  throw new Error(`Invalid boolean value for BEDROCK_ENABLED: ${value}`);
+  throw new Error(`Invalid boolean value for ${key}: ${value}`);
 }
 
 /**
@@ -132,6 +145,44 @@ export function getBedrockConfigFromSecret(
   };
 }
 
+/**
+ * Alert-history settings, loaded only from Secrets Manager like every other
+ * setting. Disabled by default: with no HISTORY_* keys in the secret nothing is
+ * persisted and the alert path behaves exactly as it did before.
+ */
+export function getHistoryConfigFromSecret(
+  secret: Record<string, string>,
+): HistoryConfig {
+  const enabled = parseBoolean(
+    readOptionalString(secret, 'HISTORY_ENABLED'),
+    false,
+    'HISTORY_ENABLED',
+  );
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      tableName: '',
+      region: '',
+      retentionDays: 0,
+    };
+  }
+
+  for (const key of HISTORY_SECRET_KEYS_WHEN_ENABLED) {
+    requireSecretString(secret, key, 'alert history');
+  }
+
+  return {
+    enabled: true,
+    tableName: requireSecretString(secret, 'HISTORY_TABLE_NAME', 'alert history'),
+    region: requireSecretString(secret, 'HISTORY_REGION', 'alert history'),
+    retentionDays: parsePositiveInt(
+      requireSecretString(secret, 'HISTORY_RETENTION_DAYS', 'alert history'),
+      'HISTORY_RETENTION_DAYS',
+    ),
+  };
+}
+
 export async function getConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<AlertConfig> {
@@ -152,6 +203,7 @@ export async function getConfig(
     lookbackMinutes: parseLookbackMinutes(secret.LOOKBACK_MINUTES),
     errorPattern: secret.DEFAULT_ERROR_PATTERN.trim(),
     bedrock: getBedrockConfigFromSecret(secret),
+    history: getHistoryConfigFromSecret(secret),
     grafanaBaseUrl: readOptionalString(secret, 'GRAFANA_BASE_URL'),
     lokiDatasourceUid: readOptionalString(secret, 'LOKI_DATASOURCE_UID'),
   };
