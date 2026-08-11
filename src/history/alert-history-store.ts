@@ -7,6 +7,7 @@ import type {
   BedrockNormalizedEvent,
   PreprocessedLogEvent,
 } from '../types/normalized-log-event.js';
+import { extractApplicationMetadata } from '../utils/metadata-extractor.js';
 import { buildErrorSignature } from './error-signature.js';
 
 /**
@@ -119,6 +120,16 @@ export function buildAlertHistoryItem(
   const logLines =
     input.preprocessed?.representativeLogs ?? input.lokiLines ?? [];
 
+  // The skipped paths never reach `preprocessLogs`, so without this fallback
+  // every skipped record stored nulls and the weekly report dropped them into an
+  // "unknown application" bucket. `extractApplicationMetadata` is pure over the
+  // alert name and job — the same two strings `preprocessLogs` feeds it — so the
+  // semantics are identical on all three outcomes.
+  const metadata = extractApplicationMetadata({
+    alertName: input.alert.alertname,
+    job: input.alert.job,
+  });
+
   return {
     // Per-day partition: a weekly report is 7 Query calls, "last N days" works
     // for any N, and no partition grows without bound.
@@ -130,8 +141,8 @@ export function buildAlertHistoryItem(
     alertname: input.alert.alertname,
     job: input.alert.job,
     filename: input.alert.filename ?? null,
-    application: input.preprocessed?.application ?? null,
-    environment: input.preprocessed?.environment ?? null,
+    application: input.preprocessed?.application ?? metadata.application,
+    environment: input.preprocessed?.environment ?? metadata.environment,
     modulo: analysis?.modulo ?? null,
     tipoError: analysis?.tipoError ?? null,
     caso: analysis?.caso ?? null,

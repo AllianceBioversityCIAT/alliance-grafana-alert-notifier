@@ -132,6 +132,15 @@ Break these and you break production behavior or security:
 - **The DynamoDB SDK is imported lazily**, inside `recordAlertEvent`/`queryAlertHistory`.
   With the kill switch off — the default — it never enters the cold start, and tests that
   inject `put`/`query` never load it.
+- **`application`/`environment` are derived on every outcome, not just `notified`.** The
+  skipped paths never reach `preprocessLogs`, so `buildAlertHistoryItem` falls back to
+  `extractApplicationMetadata` over the alert name and job — the same two strings
+  `preprocessLogs` feeds it. Without that fallback every skipped record stored nulls and
+  the weekly report would drop them into an "unknown application" bucket.
+- **`queryHistoryDay` must paginate.** DynamoDB caps a Query response at 1 MB; a single
+  page would silently truncate a busy day. For a feature whose purpose is counting,
+  undercounting with no error is the worst failure mode — do not remove the
+  `LastEvaluatedKey` loop.
 - **Alerts dedupe by `alertname + job`**, deliberately ignoring `filename`: Grafana emits
   one series per Docker container, which produced duplicate Slack posts.
 - **Application and environment are declared in the Grafana rule name**, not derived from

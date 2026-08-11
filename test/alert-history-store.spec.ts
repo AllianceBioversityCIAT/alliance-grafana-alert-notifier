@@ -125,7 +125,9 @@ describe('buildAlertHistoryItem', () => {
     expect(item.tipoError).toBeNull();
     expect(item.errorCount).toBeNull();
     expect(item.filename).toBeNull();
-    expect(item.application).toBeNull();
+    // Metadata extraction is best-effort: the job label yields an application
+    // even from a free-form name, but there is no environment token to find.
+    expect(item.environment).toBeNull();
     expect(item.occurrences).toBe(0);
     expect(item.outcome).toBe('skipped_no_lines');
     expect(item.usedBedrock).toBe(false);
@@ -144,6 +146,38 @@ describe('buildAlertHistoryItem', () => {
     expect(item.outcome).toBe('skipped_loki_error');
     expect(item.lokiError).toBe('fetch failed: ECONNREFUSED');
     expect(item.bedrockFallbackReason).toBeNull();
+  });
+
+  it('still fills application and environment on the skipped paths', () => {
+    // Skipped alerts never reach preprocessLogs, so these used to be stored as
+    // null and the weekly report dropped them into an "unknown" bucket.
+    for (const outcome of ['skipped_no_lines', 'skipped_loki_error'] as const) {
+      const item = buildAlertHistoryItem({
+        alert,
+        config,
+        outcome,
+        slackDelivered: false,
+        now,
+      });
+
+      expect(item.application).toBe('PRMS');
+      expect(item.environment).toBe('test');
+      expect(item.occurrences).toBe(0);
+    }
+  });
+
+  it('prefers the preprocessed metadata over the derived fallback', () => {
+    const item = buildAlertHistoryItem({
+      ...baseInput(),
+      preprocessed: {
+        ...preprocessed,
+        application: 'FromPreprocessing',
+        environment: 'staging',
+      },
+    });
+
+    expect(item.application).toBe('FromPreprocessing');
+    expect(item.environment).toBe('staging');
   });
 });
 

@@ -41,21 +41,37 @@ export async function putHistoryItem(input: {
   );
 }
 
+/**
+ * Reads one day partition in full.
+ *
+ * The pagination loop is not optional: DynamoDB caps a Query response at 1 MB,
+ * and a single page would silently truncate a busy day. For a feature whose
+ * whole purpose is counting, undercounting without any error is the worst
+ * possible failure mode — the report would look healthy and be wrong.
+ */
 export async function queryHistoryDay(input: {
   region: string;
   tableName: string;
   partitionKey: string;
 }): Promise<Record<string, unknown>[]> {
   const client = getClient(input.region);
+  const items: Record<string, unknown>[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
 
-  const response = await client.send(
-    new QueryCommand({
-      TableName: input.tableName,
-      KeyConditionExpression: '#pk = :pk',
-      ExpressionAttributeNames: { '#pk': 'pk' },
-      ExpressionAttributeValues: { ':pk': input.partitionKey },
-    }),
-  );
+  do {
+    const response = await client.send(
+      new QueryCommand({
+        TableName: input.tableName,
+        KeyConditionExpression: '#pk = :pk',
+        ExpressionAttributeNames: { '#pk': 'pk' },
+        ExpressionAttributeValues: { ':pk': input.partitionKey },
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
 
-  return (response.Items ?? []) as Record<string, unknown>[];
+    items.push(...((response.Items ?? []) as Record<string, unknown>[]));
+    exclusiveStartKey = response.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return items;
 }
