@@ -5,6 +5,8 @@ HTTP API, queries Loki for recent error lines, optionally normalizes them with A
 (Nova Micro via the Converse API), and posts to Slack. No web framework — only AWS SDK v3.
 
 Design rationale lives in `docs/bedrock-enrichment-plan.md`; operational docs in `README.md`.
+`docs/alert-history-plan.md` holds the not-yet-started plan for persisting alerts in DynamoDB and
+the weekly recurring-pattern report, plus a backlog of known rough edges.
 
 ## Commands
 
@@ -26,7 +28,7 @@ node node_modules/vitest/vitest.mjs run
 ```
 
 Diagnostics without Grafana: `npm run test:loki:local`, `npm run test:loki:lambda`,
-`npm run test:slack:preview:local`.
+`npm run test:slack:preview:local`, `npm run test:history:lambda`.
 
 ## Request flow (`src/handler.ts`)
 
@@ -36,7 +38,10 @@ The handler dispatches on the JSON body shape:
    Useful for inspecting Docker framing bytes in the JSON response.
 2. `{"diagnostic":"slack-preview"}` → builds the Slack message without sending it.
    Note this runs the **full** pipeline, Bedrock inference included.
-3. Anything else → Grafana payload.
+3. `{"diagnostic":"history","days":7}` → reads the stored alerts of the last N days
+   (default 7) grouped by signature, most frequent first. Answers 200 with
+   `enabled:false` when `HISTORY_ENABLED` is off, without querying DynamoDB.
+4. Anything else → Grafana payload.
 
 Grafana path: `parseGrafanaAlert` → `deduplicateAlerts` → per alert `previewSlackMessage`
 (Loki query → sanitize → redact → group stack traces → semantic dedupe → Bedrock) →
@@ -52,6 +57,7 @@ Grafana path: `parseGrafanaAlert` → `deduplicateAlerts` → per alert `preview
 | `src/loki/` | LogQL construction, `query_range` client, connection diagnostic |
 | `src/utils/` | Sanitizing, redaction, dedupe, preprocessing, metadata extraction, time window |
 | `src/bedrock/` | Converse client, analyzer orchestration, prompts, response validation |
+| `src/history/` | Error signature, DynamoDB client, alert-history store and aggregation |
 | `src/slack/` | Message construction (legacy + enriched), webhook shape selection, sending |
 | `src/types/` | `LokiLogEntry`, `PreprocessedLogEvent`, `BedrockNormalizedEvent` |
 
@@ -66,6 +72,11 @@ Break these and you break production behavior or security:
   the legacy message whenever Loki lines are available.
 - **Never log secrets or webhook URLs.** `src/utils/diagnostic-log.ts` logs a host and a
   `slackConfigured` boolean, never the URL. Redaction happens before logs reach Bedrock.
+- **A DynamoDB failure must never affect Slack delivery.** The history write is the last
+  thing `processAlert` does, after the send, and it cannot throw: `recordAlertEvent`
+  swallows its own errors and `recordSafely` wraps the assembly too. Errors go only to
+  CloudWatch and the webhook still returns 200. The write was added *additively* — no
+  existing Loki or Slack line was rewritten — precisely so this stays easy to verify.
 - **`resolved` alerts are ignored** — respond 200 without querying Loki or Slack.
 - **Loki or Slack failures still return 200.** Errors go to CloudWatch; the webhook never
   reports failure back to Grafana.
@@ -111,6 +122,16 @@ Break these and you break production behavior or security:
 - **`occurrences` is not the true error count.** It counts log lines returned by Loki,
   capped at `LOKI_LINE_LIMIT = 10`. The real count from Grafana is `alert.values.B`,
   carried as `errorCount` in the Workflow payload.
+- **The history signature is not `normalizeMessageKey`.** `src/history/error-signature.ts`
+  builds on it but substitutes identifiers (UUIDs, quoted numbers, `id/code: N`, bracketed
+  indices, `attempt N/M`, container hashes, IPs) so the same defect matches across weeks.
+  `normalizeMessageKey` is left alone because it drives the visible `(xN)` grouping in
+  Slack. The bias is to **under-normalize**: bare numbers survive, so `status code 500`
+  and `status code 404` stay distinct problems. Merging two real problems into one report
+  line makes both invisible; the inverse error is merely noisy.
+- **The DynamoDB SDK is imported lazily**, inside `recordAlertEvent`/`queryAlertHistory`.
+  With the kill switch off — the default — it never enters the cold start, and tests that
+  inject `put`/`query` never load it.
 - **Alerts dedupe by `alertname + job`**, deliberately ignoring `filename`: Grafana emits
   one series per Docker container, which produced duplicate Slack posts.
 - **Application and environment are declared in the Grafana rule name**, not derived from

@@ -3,8 +3,9 @@ param(
   [string]$StackName = 'grafana-alert-lambda',
   [string]$Region = 'us-east-1',
   [string]$Job = 'example-app',
-  [ValidateSet('loki', 'slack-preview')]
+  [ValidateSet('loki', 'slack-preview', 'history')]
   [string]$Diagnostic = 'loki',
+  [int]$Days = 7,
   [string]$WebhookUrl = '',
   [switch]$UseLambdaInvoke,
   [string]$Profile = ''
@@ -44,6 +45,13 @@ function Get-StackWebhookUrl {
 }
 
 function Get-DiagnosticBody {
+  if ($Diagnostic -eq 'history') {
+    return @{
+      diagnostic = $Diagnostic
+      days = $Days
+    }
+  }
+
   return @{
     diagnostic = $Diagnostic
     job = $Job

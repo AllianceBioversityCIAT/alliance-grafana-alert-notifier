@@ -37,6 +37,18 @@ Parameters:
       - prod
     Description: Deployment environment. Used for the Project tag (grafana-alert-<environment>).
 
+  HistoryTableName:
+    Type: String
+    Default: ''
+    Description: >-
+      DynamoDB table storing processed alerts. Leave empty to derive it as
+      grafana-alert-history-<environment>. DynamoDB table names are unique per account and
+      region, so a fixed name across environments would make the second stack fail to create.
+      Copy the resolved value into HISTORY_TABLE_NAME in that environment's secret.
+
+Conditions:
+  HasExplicitHistoryTableName: !Not [!Equals [!Ref HistoryTableName, '']]
+
 Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -74,6 +86,40 @@ Resources:
                   # Model ID is chosen at runtime from Secrets Manager; scope to foundation models in this region.
                   - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/*'
                   - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
+              - Sid: WriteAlertHistory
+                Effect: Allow
+                Action:
+                  # Query is needed immediately by the {"diagnostic":"history"} branch.
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt AlertHistoryTable.Arn
+      Tags:
+        - Key: Project
+          Value: !Sub 'grafana-alert-${Environment}'
+
+  AlertHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !If
+        - HasExplicitHistoryTableName
+        - !Ref HistoryTableName
+        - !Sub 'grafana-alert-history-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        # pk is DAY#<yyyy-mm-dd>: a weekly report is 7 Query calls, "last N days"
+        # works for any N, and no partition grows without bound.
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
       Tags:
         - Key: Project
           Value: !Sub 'grafana-alert-${Environment}'
@@ -178,6 +224,10 @@ Outputs:
   SecretName:
     Description: Secrets Manager secret name configured in the Lambda.
     Value: !Ref SecretName
+
+  HistoryTableName:
+    Description: DynamoDB alert-history table. Copy into HISTORY_TABLE_NAME in the secret.
+    Value: !Ref AlertHistoryTable
 
   ProjectTag:
     Description: Project tag applied to stack resources.

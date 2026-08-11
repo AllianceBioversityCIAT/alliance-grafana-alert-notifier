@@ -100,12 +100,20 @@ export const bedrockConfig = {
   timezone: 'America/Bogota',
 };
 
+export const historyConfig = {
+  enabled: false,
+  tableName: 'grafana-alert-history-test',
+  region: 'us-east-1',
+  retentionDays: 90,
+};
+
 export const alertConfig = {
   lokiBaseUrl: alertSecret.LOKI_BASE_URL,
   slackWebhookUrl: alertSecret.SLACK_WEBHOOK_URL,
   lookbackMinutes: 5,
   errorPattern: alertSecret.DEFAULT_ERROR_PATTERN,
   bedrock: bedrockConfig,
+  history: historyConfig,
 };
 
 export const lokiQueryRangeResponse = {

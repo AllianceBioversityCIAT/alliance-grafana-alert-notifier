@@ -10,6 +10,11 @@ import {
   parseGrafanaAlert,
 } from './grafana/parse-grafana-alert.js';
 import type { GrafanaWebhookPayload } from './grafana/grafana-payload.types.js';
+import {
+  queryAlertHistory,
+  recordAlertEvent,
+  type RecordAlertEventInput,
+} from './history/alert-history-store.js';
 import { testLokiConnection } from './loki/test-loki-connection.js';
 import { previewSlackMessage } from './slack/preview-slack-message.js';
 import {
@@ -87,6 +92,68 @@ function parseRequestBody(body: string | undefined): GrafanaWebhookPayload {
   return parseGrafanaPayload(parseJsonBody(body));
 }
 
+function isHistoryDiagnosticPayload(
+  body: unknown,
+): body is { diagnostic: 'history'; days?: number } {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'diagnostic' in body &&
+    (body as { diagnostic?: string }).diagnostic === 'history'
+  );
+}
+
+const DEFAULT_HISTORY_DIAGNOSTIC_DAYS = 7;
+
+async function handleHistoryDiagnostic(body: {
+  days?: number;
+}): Promise<APIGatewayProxyStructuredResultV2> {
+  let config: Awaited<ReturnType<typeof getConfig>>;
+  try {
+    config = await getConfig();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Failed to load alerting configuration', { error: message });
+    return jsonResponse(500, { message: 'Configuration error', error: message });
+  }
+
+  if (!config.history.enabled) {
+    return jsonResponse(200, {
+      message: 'Alert history is disabled',
+      enabled: false,
+    });
+  }
+
+  const requested = Number(body.days);
+  const days =
+    Number.isFinite(requested) && requested > 0
+      ? Math.floor(requested)
+      : DEFAULT_HISTORY_DIAGNOSTIC_DAYS;
+
+  try {
+    const { items, signatures } = await queryAlertHistory({
+      config: config.history,
+      days,
+    });
+
+    return jsonResponse(200, {
+      message: 'Alert history retrieved',
+      enabled: true,
+      days,
+      itemCount: items.length,
+      signatures,
+      items,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Failed to query alert history', { error: message });
+    return jsonResponse(502, {
+      message: 'Alert history query failed',
+      error: message,
+    });
+  }
+}
+
 async function handleSlackPreview(
   body: SlackPreviewDiagnosticPayload,
 ): Promise<APIGatewayProxyStructuredResultV2> {
@@ -128,6 +195,20 @@ async function handleSlackPreview(
   });
 }
 
+/**
+ * Alert history is strictly a side effect of the alert path. `recordAlertEvent`
+ * already swallows its own failures; this wrapper additionally guarantees that
+ * nothing thrown while *assembling* the record can escape into the Slack path.
+ */
+async function recordSafely(input: RecordAlertEventInput): Promise<void> {
+  try {
+    await recordAlertEvent(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Failed to record alert history', { error: message });
+  }
+}
+
 async function processAlert(
   incoming: ReturnType<typeof deduplicateAlerts>[number],
   config: Awaited<ReturnType<typeof getConfig>>,
@@ -147,6 +228,13 @@ async function processAlert(
       job: alert.job,
       alertname: alert.alertname,
     });
+    await recordSafely({
+      alert,
+      config: config.history,
+      outcome: 'skipped_loki_error',
+      slackDelivered: false,
+      lokiError: preview.lokiError,
+    });
     return;
   }
 
@@ -155,6 +243,12 @@ async function processAlert(
       job: alert.job,
       alertname: alert.alertname,
       lookbackMinutes: config.lookbackMinutes,
+    });
+    await recordSafely({
+      alert,
+      config: config.history,
+      outcome: 'skipped_no_lines',
+      slackDelivered: false,
     });
     return;
   }
@@ -186,6 +280,8 @@ async function processAlert(
     config.slackWebhookUrl,
   );
 
+  let slackDelivered = true;
+
   try {
     await sendSlackMessage(config.slackWebhookUrl, slackPayload);
   } catch (error) {
@@ -195,7 +291,22 @@ async function processAlert(
       alertname: alert.alertname,
       error: slackError,
     });
+    slackDelivered = false;
   }
+
+  // Last, and never able to change anything above it: a DynamoDB failure must
+  // not affect Slack delivery.
+  await recordSafely({
+    alert,
+    config: config.history,
+    outcome: 'notified',
+    slackDelivered,
+    preprocessed: preview.preprocessed,
+    analysis: preview.analysis,
+    usedBedrock: preview.usedBedrock,
+    bedrockFallbackReason: preview.bedrockFallbackReason,
+    lokiLines: preview.lokiLines,
+  });
 }
 
 export async function handler(
@@ -218,6 +329,10 @@ export async function handler(
 
   if (isSlackPreviewPayload(body)) {
     return handleSlackPreview(body);
+  }
+
+  if (isHistoryDiagnosticPayload(body)) {
+    return handleHistoryDiagnostic(body);
   }
 
   let payload: GrafanaWebhookPayload;
