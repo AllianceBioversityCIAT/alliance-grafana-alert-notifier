@@ -18,6 +18,7 @@ import {
 import { testLokiConnection } from './loki/test-loki-connection.js';
 import { buildReportMessage } from './report/build-report-message.js';
 import { buildWeeklyReport } from './report/build-weekly-report.js';
+import { writeReportNarrative } from './report/report-analyzer.js';
 import { previewSlackMessage } from './slack/preview-slack-message.js';
 import {
   buildPreviewAlert,
@@ -150,6 +151,26 @@ function isReportDiagnosticPayload(
 }
 
 /**
+ * `writeReportNarrative` already swallows its own failures. This wrapper does
+ * not trust that: one rejected promise inside `Promise.all` would abort every
+ * application's message, so a narrative can never be allowed to escape. Same
+ * reasoning as `recordSafely` on the alert path.
+ */
+async function narrateSafely(
+  input: Parameters<typeof writeReportNarrative>[0],
+): Promise<Awaited<ReturnType<typeof writeReportNarrative>>> {
+  try {
+    return await writeReportNarrative(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Report narrative threw; posting without it', {
+      error: message,
+    });
+    return { narrative: null, usedBedrock: false, fallbackReason: message };
+  }
+}
+
+/**
  * Builds the weekly report and, unless this is a dry run, posts one message per
  * application.
  *
@@ -203,15 +224,32 @@ async function handleWeeklyReport(input: {
     partitionsRead: report.partitionsRead,
   });
 
-  const messages = report.reports.map((applicationReport) => ({
-    application: applicationReport.application,
-    environment: applicationReport.environment,
-    message: buildReportMessage({
-      report: applicationReport,
-      week: report.week,
-      grafanaBaseUrl: config.grafanaBaseUrl,
+  // The narrative is an enhancement, never a gate: `writeReportNarrative`
+  // swallows its own failures and returns null, and the message below is
+  // complete without it.
+  const messages = await Promise.all(
+    report.reports.map(async (applicationReport) => {
+      const narrative = await narrateSafely({
+        report: applicationReport,
+        week: report.week,
+        bedrock: config.bedrock,
+        reportConfig: config.report,
+      });
+
+      return {
+        application: applicationReport.application,
+        environment: applicationReport.environment,
+        usedBedrock: narrative.usedBedrock,
+        bedrockFallbackReason: narrative.fallbackReason ?? null,
+        message: buildReportMessage({
+          report: applicationReport,
+          week: report.week,
+          narrative: narrative.narrative,
+          grafanaBaseUrl: config.grafanaBaseUrl,
+        }),
+      };
     }),
-  }));
+  );
 
   if (input.dryRun) {
     return jsonResponse(200, {

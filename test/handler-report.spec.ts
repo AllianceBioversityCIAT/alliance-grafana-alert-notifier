@@ -6,6 +6,7 @@ const mockGetConfig = vi.fn();
 const mockSendSlackMessage = vi.fn();
 const mockBuildWeeklyReport = vi.fn();
 const mockQueryLokiErrors = vi.fn();
+const mockWriteReportNarrative = vi.fn();
 
 vi.mock('../src/config/get-config.js', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...args),
@@ -17,6 +18,11 @@ vi.mock('../src/slack/slack-client.js', () => ({
 
 vi.mock('../src/report/build-weekly-report.js', () => ({
   buildWeeklyReport: (...args: unknown[]) => mockBuildWeeklyReport(...args),
+}));
+
+vi.mock('../src/report/report-analyzer.js', () => ({
+  writeReportNarrative: (...args: unknown[]) =>
+    mockWriteReportNarrative(...args),
 }));
 
 vi.mock('../src/loki/loki-client.js', async () => {
@@ -112,6 +118,11 @@ describe('handler weekly report', () => {
     mockGetConfig.mockResolvedValue(reportEnabledConfig);
     mockBuildWeeklyReport.mockResolvedValue(weeklyReport);
     mockSendSlackMessage.mockResolvedValue(undefined);
+    mockWriteReportNarrative.mockResolvedValue({
+      narrative: null,
+      usedBedrock: false,
+      fallbackReason: 'bedrock_disabled',
+    });
   });
 
   afterEach(() => {
@@ -239,6 +250,64 @@ describe('handler weekly report', () => {
     expect(response.statusCode).toBe(502);
     expect(mockSendSlackMessage).not.toHaveBeenCalled();
   });
+
+  it('prepends the narrative above the numbers when Bedrock answers', async () => {
+    mockWriteReportNarrative.mockResolvedValue({
+      narrative: 'Database write failures dominated the week.',
+      usedBedrock: true,
+    });
+
+    await handler(buildDirectEvent({ report: 'weekly' }), context);
+
+    const text = mockSendSlackMessage.mock.calls[0][1].text as string;
+    expect(text).toContain('Database write failures dominated the week.');
+    expect(text).toContain('47 alerts · 312 errors');
+    expect(text.indexOf('dominated')).toBeLessThan(text.indexOf('47 alerts'));
+  });
+
+  it('posts the deterministic report when the narrative fails', async () => {
+    // The invariant: delivery must never depend on the model.
+    mockWriteReportNarrative.mockResolvedValue({
+      narrative: null,
+      usedBedrock: false,
+      fallbackReason: 'Bedrock converse timed out after 20000ms',
+    });
+
+    const response = await handler(
+      buildDirectEvent({ report: 'weekly' }),
+      context,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSendSlackMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendSlackMessage.mock.calls[0][1].text).toContain(
+      '47 alerts · 312 errors · 9 distinct patterns',
+    );
+  });
+
+  it('still posts the other applications when one narrative throws', async () => {
+    // writeReportNarrative swallows its own errors, but the handler must not
+    // depend on that promise: a rejection here would abort every message.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockBuildWeeklyReport.mockResolvedValue({
+      ...weeklyReport,
+      reports: [
+        weeklyReport.reports[0],
+        { ...weeklyReport.reports[0], application: 'CLARISA' },
+      ],
+    });
+    mockWriteReportNarrative
+      .mockRejectedValueOnce(new Error('unexpected'))
+      .mockResolvedValueOnce({ narrative: null, usedBedrock: false });
+
+    const response = await handler(
+      buildDirectEvent({ report: 'weekly' }),
+      context,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSendSlackMessage).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('handler report diagnostic', () => {
@@ -246,6 +315,11 @@ describe('handler report diagnostic', () => {
     mockGetConfig.mockResolvedValue(reportEnabledConfig);
     mockBuildWeeklyReport.mockResolvedValue(weeklyReport);
     mockSendSlackMessage.mockResolvedValue(undefined);
+    mockWriteReportNarrative.mockResolvedValue({
+      narrative: null,
+      usedBedrock: false,
+      fallbackReason: 'bedrock_disabled',
+    });
   });
 
   afterEach(() => {

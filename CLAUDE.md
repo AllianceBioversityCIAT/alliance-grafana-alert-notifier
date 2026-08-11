@@ -81,7 +81,10 @@ Break these and you break production behavior or security:
   `ALERTING_SECRET_NAME`. Never hardcode model IDs, regions, thresholds, timezones, or
   date formats in application code, and never add them as Lambda env vars.
 - **A Bedrock failure must never block Slack delivery.** Every failure path falls back to
-  the legacy message whenever Loki lines are available.
+  the legacy message whenever Loki lines are available. The weekly report holds the same
+  line: the numbers are computed in code and Bedrock only writes the paragraph above them,
+  over aggregates and never over log text. `narrateSafely` in the handler exists because
+  one rejected promise inside `Promise.all` would abort *every* application's message.
 - **Never log secrets or webhook URLs.** `src/utils/diagnostic-log.ts` logs a host and a
   `slackConfigured` boolean, never the URL. Redaction happens before logs reach Bedrock.
 - **A DynamoDB failure must never affect Slack delivery.** The history write is the last
