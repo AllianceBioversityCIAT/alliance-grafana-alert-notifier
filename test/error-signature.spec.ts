@@ -74,56 +74,55 @@ describe('buildErrorSignature', () => {
     );
   });
 
-  it('separates patterns that differ only by module or error type', () => {
-    const base = { representativeLine: 'Error saving item with id/code: 39' };
-
+  it('separates patterns that differ by module or error type via the line itself', () => {
+    // The bracketed module and the exception class live in the line, so they
+    // still discriminate — deterministically, without Bedrock.
     expect(
-      buildErrorSignature({ ...base, module: 'ClarisaTaskService' }).signature,
+      signatureOf('ERROR [ClarisaTaskService] Error saving item with id: 39'),
     ).not.toBe(
-      buildErrorSignature({ ...base, module: 'BilateralAiTextMiningService' })
-        .signature,
+      signatureOf('ERROR [BilateralAiTextMiningService] Error saving item with id: 39'),
     );
 
-    expect(
-      buildErrorSignature({ ...base, errorType: 'QueryFailedError' }).signature,
-    ).not.toBe(
-      buildErrorSignature({ ...base, errorType: 'ETIMEDOUT' }).signature,
+    expect(signatureOf('ERROR [System] QueryFailedError: write failed')).not.toBe(
+      signatureOf('ERROR [System] ETIMEDOUT: write failed'),
     );
+  });
+
+  it('does not depend on whether Bedrock answered', () => {
+    // Observed in production on 2026-08-11: the same line was stored under two
+    // signatures because Bedrock failed to parse its own response on one alert,
+    // leaving modulo and tipoError null. That split the pattern and would have
+    // broken its streak. The signature must not move for that reason.
+    const line =
+      '[Nest] 25 - 08/11/2026, 7:45:55 PM ERROR [System] HttpException: Authorization token is required';
+
+    const result = buildErrorSignature({ representativeLine: line });
+
+    expect(result.signature).toMatch(/^[0-9a-f]{16}$/);
+    expect(result.signatureText).toBe(
+      '[Nest] PID - <TIMESTAMP> ERROR [System] HttpException: Authorization token is required',
+    );
+    // Both the module and the exception class survive in the text, so the
+    // report can still name the pattern without the analysis.
+    expect(result.signatureText).toContain('[System]');
+    expect(result.signatureText).toContain('HttpException');
   });
 
   it('names the pattern in readable text and hashes to 16 hex characters', () => {
     const result = buildErrorSignature({
-      module: 'ClarisaTaskService',
-      errorType: 'QueryFailedError',
       representativeLine:
         'ERROR [ClarisaTaskService] [15] Error saving item with id/code: 39',
     });
 
     expect(result.signature).toMatch(/^[0-9a-f]{16}$/);
     expect(result.signatureText).toContain('ClarisaTaskService');
-    expect(result.signatureText).toContain('QueryFailedError');
     expect(result.signatureText).toContain('<ID>');
     // Stable across calls: the report depends on equality holding over weeks.
     expect(
       buildErrorSignature({
-        module: 'ClarisaTaskService',
-        errorType: 'QueryFailedError',
         representativeLine:
           'ERROR [ClarisaTaskService] [28] Error saving item with id/code: 6259',
       }).signature,
     ).toBe(result.signature);
-  });
-
-  it('still yields a signature when Bedrock did not run', () => {
-    const result = buildErrorSignature({
-      module: null,
-      errorType: null,
-      representativeLine: 'ERROR [System] HttpException: token is required',
-    });
-
-    expect(result.signature).toMatch(/^[0-9a-f]{16}$/);
-    expect(result.signatureText).toBe(
-      'ERROR [System] HttpException: token is required',
-    );
   });
 });

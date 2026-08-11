@@ -45,8 +45,6 @@ const SUBSTITUTIONS: Array<{ pattern: RegExp; replacement: string }> = [
 ];
 
 export interface ErrorSignatureInput {
-  module?: string | null;
-  errorType?: string | null;
   representativeLine: string;
 }
 
@@ -70,22 +68,24 @@ export function normalizeSignatureText(line: string): string {
 
 /**
  * Builds the signature that lets the same underlying error be recognized across
- * different weeks. `module` and `errorType` come from the Bedrock analysis when
- * it ran and are simply absent otherwise — the representative line alone still
- * yields a usable signature.
+ * different weeks.
+ *
+ * **It is computed from the log line alone, on purpose.** An earlier version
+ * also folded in the Bedrock-derived `modulo` and `tipoError`, and production
+ * data showed why that was wrong: when Bedrock failed to parse its own response
+ * — around one alert in six — those fields were null and the *same* line
+ * produced a second signature, splitting the pattern and breaking its streak.
+ * A signature that depends on a model answering is not a signature.
+ *
+ * Nothing is lost by dropping them. The normalized line already carries the
+ * bracketed module and the exception class deterministically, as in
+ * `ERROR [System] HttpException: ...`, and both fields remain stored on the
+ * item for the report to name the pattern with.
  */
 export function buildErrorSignature(
   input: ErrorSignatureInput,
 ): ErrorSignature {
-  const normalizedLine = normalizeSignatureText(input.representativeLine);
-
-  const signatureText = [
-    input.module?.trim() || null,
-    input.errorType?.trim() || null,
-    normalizedLine || null,
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join(' · ');
+  const signatureText = normalizeSignatureText(input.representativeLine);
 
   const signature = createHash('sha256')
     .update(signatureText)

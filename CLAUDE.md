@@ -159,6 +159,13 @@ Break these and you break production behavior or security:
 - **`occurrences` is not the true error count.** It counts log lines returned by Loki,
   capped at `LOKI_LINE_LIMIT = 10`. The real count from Grafana is `alert.values.B`,
   carried as `errorCount` in the Workflow payload.
+- **The signature is computed from the log line alone — never from the Bedrock analysis.**
+  An earlier version folded in `modulo` and `tipoError`, and production showed why that
+  fails: Bedrock failed to parse its own response on roughly one alert in six, those fields
+  came back null, and the *same* line produced a second signature that split the pattern and
+  broke its streak. A signature that depends on a model answering is not a signature. Nothing
+  is lost — the line already carries `[Module]` and the exception class, and both fields stay
+  on the item for the report to name the pattern with.
 - **The history signature is not `normalizeMessageKey`.** `src/history/error-signature.ts`
   builds on it but substitutes identifiers (UUIDs, quoted numbers, `id/code: N`, bracketed
   indices, `attempt N/M`, container hashes, IPs) so the same defect matches across weeks.

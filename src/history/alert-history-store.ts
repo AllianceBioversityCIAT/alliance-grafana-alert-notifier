@@ -111,9 +111,9 @@ export function buildAlertHistoryItem(
   const recordedAt = now.toISOString();
   const analysis = input.analysis ?? null;
 
+  // Deliberately not fed the Bedrock analysis: the signature has to be the same
+  // whether or not the model answered. See buildErrorSignature.
   const { signature, signatureText } = buildErrorSignature({
-    module: analysis?.modulo ?? null,
-    errorType: analysis?.tipoError ?? null,
     representativeLine: pickRepresentativeLine(input),
   });
 
