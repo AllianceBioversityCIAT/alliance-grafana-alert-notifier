@@ -291,6 +291,33 @@ describe('handler weekly report', () => {
     expect(mockSendSlackMessage).not.toHaveBeenCalled();
   });
 
+  it('still posts once when the week had no alerts at all', async () => {
+    // Silence would otherwise mean both "a quiet week" and "the report died".
+    mockBuildWeeklyReport.mockResolvedValue({
+      ...weeklyReport,
+      reports: [],
+      totals: {
+        alertCount: 0,
+        errorCount: 0,
+        patternCount: 0,
+        applicationCount: 0,
+      },
+    });
+
+    const response = await handler(
+      buildDirectEvent({ report: 'weekly' }),
+      context,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSendSlackMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendSlackMessage.mock.calls[0][1].text).toContain(
+      'No alerts were recorded this week.',
+    );
+    // Nothing to narrate, so Bedrock is not consulted at all.
+    expect(mockWriteReportNarrative).not.toHaveBeenCalled();
+  });
+
   it('prepends the narrative above the numbers when Bedrock answers', async () => {
     mockWriteReportNarrative.mockResolvedValue({
       narrative: 'Database write failures dominated the week.',

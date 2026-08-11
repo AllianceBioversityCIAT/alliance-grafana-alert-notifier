@@ -62,6 +62,32 @@ function countSkipped(report: ApplicationReport): number {
 }
 
 /**
+ * The message for a week in which no application recorded anything.
+ *
+ * Sending nothing would be the obvious alternative, but this runs weekly and
+ * unattended: a genuinely quiet week and a report that died would then look
+ * identical from the channel. One short message a week is a cheap price for
+ * knowing the difference.
+ */
+export function buildEmptyReportMessage(input: {
+  week: ReportWeek;
+  grafanaBaseUrl?: string;
+}): string {
+  const lines = [
+    '📊 Weekly report',
+    `Week ${input.week.label} (${input.week.rangeLabel})`,
+    '',
+    'No alerts were recorded this week.',
+  ];
+
+  if (input.grafanaBaseUrl) {
+    lines.push('', `<${input.grafanaBaseUrl}|View in Grafana>`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * The deterministic report for one application. Bedrock's narrative, when it
  * runs, is prepended to this — never a replacement for it, because delivery
  * must not depend on the model.

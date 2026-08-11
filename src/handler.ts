@@ -16,7 +16,10 @@ import {
   type RecordAlertEventInput,
 } from './history/alert-history-store.js';
 import { testLokiConnection } from './loki/test-loki-connection.js';
-import { buildReportMessage } from './report/build-report-message.js';
+import {
+  buildEmptyReportMessage,
+  buildReportMessage,
+} from './report/build-report-message.js';
 import { buildWeeklyReport } from './report/build-weekly-report.js';
 import { writeReportNarrative } from './report/report-analyzer.js';
 import { previewSlackMessage } from './slack/preview-slack-message.js';
@@ -227,10 +230,28 @@ async function handleWeeklyReport(input: {
     partitionsRead: report.partitionsRead,
   });
 
+  // A week with no alerts at all still gets a message. Silence would otherwise
+  // mean both "a quiet week" and "the report died", and this runs unattended.
+  const applicationMessages =
+    report.reports.length === 0
+      ? [
+          {
+            application: null,
+            environment: null,
+            usedBedrock: false,
+            bedrockFallbackReason: 'empty_week',
+            message: buildEmptyReportMessage({
+              week: report.week,
+              grafanaBaseUrl: config.grafanaBaseUrl,
+            }),
+          },
+        ]
+      : null;
+
   // The narrative is an enhancement, never a gate: `writeReportNarrative`
   // swallows its own failures and returns null, and the message below is
   // complete without it.
-  const messages = await Promise.all(
+  const messages = applicationMessages ?? await Promise.all(
     report.reports.map(async (applicationReport) => {
       const narrative = await narrateSafely({
         report: applicationReport,

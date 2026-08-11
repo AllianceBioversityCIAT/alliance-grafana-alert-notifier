@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildReportMessage } from '../src/report/build-report-message.js';
+import {
+  buildEmptyReportMessage,
+  buildReportMessage,
+} from '../src/report/build-report-message.js';
 import type { ApplicationReport } from '../src/report/report-aggregator.js';
 import { getReportWeek } from '../src/report/report-window.js';
 
@@ -198,6 +201,14 @@ describe('buildReportMessage', () => {
     });
 
     expect(message).toContain('📊 Weekly report · Unidentified application');
+  });
+
+  it('names the week even when nothing was recorded anywhere', () => {
+    const message = buildEmptyReportMessage({ week });
+
+    expect(message).toContain('📊 Weekly report');
+    expect(message).toContain('Week 2026-W32 (Aug 3 – Aug 9)');
+    expect(message).toContain('No alerts were recorded this week.');
   });
 
   it('uses singular wording for a single alert', () => {
