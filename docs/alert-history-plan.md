@@ -245,11 +245,15 @@ Anticipated keys: `REPORT_ENABLED`, `SLACK_REPORT_WEBHOOK_URL` (optional, fallin
 webhook, so the report can live in its own channel), `REPORT_BEDROCK_MAX_TOKENS`,
 `REPORT_BEDROCK_TIMEOUT_MS`.
 
-Approved message shape:
+Approved message shape. **Note the corrected date range:** the original example read
+`2026-W32 (Jul 28 – Aug 3)`, which is a Tuesday-to-Monday span, not an ISO week. 2026-08-03 is
+a Monday, so ISO week 32 of 2026 runs Aug 3 – Aug 9. `src/report/report-window.ts` implements
+ISO weeks (Monday-based, with the week-numbering year), so the rendered label differs from the
+sketch below by design.
 
 ```
 📊 Weekly report · PRMS Test
-Week 2026-W32 (Jul 28 – Aug 3)
+Week 2026-W32 (Aug 3 – Aug 9)
 
 *Summary*
 47 alerts · 312 errors · 9 distinct patterns

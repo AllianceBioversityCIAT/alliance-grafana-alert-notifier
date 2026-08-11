@@ -141,6 +141,15 @@ Break these and you break production behavior or security:
   page would silently truncate a busy day. For a feature whose purpose is counting,
   undercounting with no error is the worst failure mode — do not remove the
   `LastEvaluatedKey` loop.
+- **Report weeks are local; partitions are UTC.** `pk` is the UTC date of `recordedAt`,
+  but a week is Monday-to-Sunday in `LOG_TIMEZONE`, so an offset week touches *eight* UTC
+  partitions. `getReportWeek` returns the exact partition set the window spans plus the
+  window's absolute bounds; callers must then `filterToWindow`, because the edge
+  partitions also hold the neighbouring weeks' items. Every date computation stays on
+  absolute instants — `Intl` is used to read a zone offset, never to do arithmetic.
+- **`occurrences` is not the error count, and the report must not present it as one.**
+  It is capped at `LOKI_LINE_LIMIT` per alert and is `0` on skipped alerts. Grafana's
+  `errorCount` is the real number. `report-aggregator.ts` sums both and labels them apart.
 - **Alerts dedupe by `alertname + job`**, deliberately ignoring `filename`: Grafana emits
   one series per Docker container, which produced duplicate Slack posts.
 - **Application and environment are declared in the Grafana rule name**, not derived from
