@@ -64,6 +64,11 @@ export interface AlertingSecret {
   HISTORY_TABLE_NAME?: string;
   HISTORY_REGION?: string;
   HISTORY_RETENTION_DAYS?: string;
+  REPORT_ENABLED?: string;
+  SLACK_REPORT_WEBHOOK_URL?: string;
+  REPORT_STREAK_WEEKS?: string;
+  REPORT_BEDROCK_MAX_TOKENS?: string;
+  REPORT_BEDROCK_TIMEOUT_MS?: string;
 }
 
 export interface BedrockConfig {
@@ -85,6 +90,16 @@ export interface HistoryConfig {
   retentionDays: number;
 }
 
+export interface ReportConfig {
+  enabled: boolean;
+  /** How many weeks before the reported one to load, for the streak count. */
+  streakWeeks: number;
+  bedrockMaxTokens: number;
+  bedrockTimeoutMs: number;
+  /** Optional: without it the report goes to the main Slack webhook. */
+  webhookUrl?: string;
+}
+
 export interface AlertConfig {
   lokiBaseUrl: string;
   slackWebhookUrl: string;
@@ -92,6 +107,7 @@ export interface AlertConfig {
   errorPattern: string;
   bedrock: BedrockConfig;
   history: HistoryConfig;
+  report: ReportConfig;
   /** Optional: without both, the Slack message carries no Explore link. */
   grafanaBaseUrl?: string;
   lokiDatasourceUid?: string;

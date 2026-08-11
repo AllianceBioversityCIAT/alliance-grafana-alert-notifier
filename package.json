@@ -17,7 +17,8 @@
     "test:loki:webhook": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -Diagnostic loki",
     "test:slack:preview:local": "npm run build && node scripts/test-slack-preview-local.mjs",
     "test:slack:preview:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic slack-preview",
-    "test:history:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic history"
+    "test:history:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic history",
+    "test:report:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic report"
   },
   "engines": {
     "node": ">=20"

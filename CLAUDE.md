@@ -28,7 +28,8 @@ node node_modules/vitest/vitest.mjs run
 ```
 
 Diagnostics without Grafana: `npm run test:loki:local`, `npm run test:loki:lambda`,
-`npm run test:slack:preview:local`, `npm run test:history:lambda`.
+`npm run test:slack:preview:local`, `npm run test:history:lambda`,
+`npm run test:report:lambda` (dry run; pass `-SendReport` to actually post).
 
 ## Request flow (`src/handler.ts`)
 
@@ -41,7 +42,17 @@ The handler dispatches on the JSON body shape:
 3. `{"diagnostic":"history","days":7}` → reads the stored alerts of the last N days
    (default 7) grouped by signature, most frequent first. Answers 200 with
    `enabled:false` when `HISTORY_ENABLED` is off, without querying DynamoDB.
-4. Anything else → Grafana payload.
+4. `{"report":"weekly"}` → builds and posts the weekly report. Checked **first**, so a
+   scheduled invocation can never fall through to the alert path.
+5. `{"diagnostic":"report"}` → same report, returned without posting. `dryRun` defaults
+   to true; only an explicit `dryRun:false` sends.
+6. Anything else → Grafana payload.
+
+The handler accepts both the API Gateway shape (payload as a JSON string in `event.body`)
+and a direct invocation, where the payload **is** the event — that is how EventBridge
+Scheduler calls it. `normalizeEventPayload` reconciles the two. An event carrying
+`requestContext` but no body is still a malformed webhook, not a direct invocation, and
+still answers 400.
 
 Grafana path: `parseGrafanaAlert` → `deduplicateAlerts` → per alert `previewSlackMessage`
 (Loki query → sanitize → redact → group stack traces → semantic dedupe → Bedrock) →
@@ -58,6 +69,7 @@ Grafana path: `parseGrafanaAlert` → `deduplicateAlerts` → per alert `preview
 | `src/utils/` | Sanitizing, redaction, dedupe, preprocessing, metadata extraction, time window |
 | `src/bedrock/` | Converse client, analyzer orchestration, prompts, response validation |
 | `src/history/` | Error signature, DynamoDB client, alert-history store and aggregation |
+| `src/report/` | ISO week window, weekly aggregation, report orchestration and message |
 | `src/slack/` | Message construction (legacy + enriched), webhook shape selection, sending |
 | `src/types/` | `LokiLogEntry`, `PreprocessedLogEvent`, `BedrockNormalizedEvent` |
 

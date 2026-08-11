@@ -3,9 +3,11 @@ param(
   [string]$StackName = 'grafana-alert-lambda',
   [string]$Region = 'us-east-1',
   [string]$Job = 'example-app',
-  [ValidateSet('loki', 'slack-preview', 'history')]
+  [ValidateSet('loki', 'slack-preview', 'history', 'report')]
   [string]$Diagnostic = 'loki',
   [int]$Days = 7,
+  # The report diagnostic never posts unless this is explicitly turned off.
+  [switch]$SendReport,
   [string]$WebhookUrl = '',
   [switch]$UseLambdaInvoke,
   [string]$Profile = ''
@@ -49,6 +51,13 @@ function Get-DiagnosticBody {
     return @{
       diagnostic = $Diagnostic
       days = $Days
+    }
+  }
+
+  if ($Diagnostic -eq 'report') {
+    return @{
+      diagnostic = $Diagnostic
+      dryRun = (-not $SendReport)
     }
   }
 

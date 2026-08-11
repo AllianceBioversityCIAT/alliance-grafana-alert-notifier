@@ -2,6 +2,7 @@ import type {
   AlertConfig,
   BedrockConfig,
   HistoryConfig,
+  ReportConfig,
 } from '../grafana/grafana-payload.types.js';
 import { getSecretJson } from '../secrets/get-secret.js';
 
@@ -25,6 +26,13 @@ const HISTORY_SECRET_KEYS_WHEN_ENABLED = [
   'HISTORY_TABLE_NAME',
   'HISTORY_REGION',
   'HISTORY_RETENTION_DAYS',
+] as const;
+
+const REPORT_SECRET_KEYS_WHEN_ENABLED = [
+  'REPORT_ENABLED',
+  'REPORT_STREAK_WEEKS',
+  'REPORT_BEDROCK_MAX_TOKENS',
+  'REPORT_BEDROCK_TIMEOUT_MS',
 ] as const;
 
 function parseLookbackMinutes(value: string): number {
@@ -183,6 +191,60 @@ export function getHistoryConfigFromSecret(
   };
 }
 
+/**
+ * Weekly-report settings. Disabled by default like every other feature, so the
+ * report ships dark and is turned on per environment from the secret.
+ */
+export function getReportConfigFromSecret(
+  secret: Record<string, string>,
+): ReportConfig {
+  const enabled = parseBoolean(
+    readOptionalString(secret, 'REPORT_ENABLED'),
+    false,
+    'REPORT_ENABLED',
+  );
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      streakWeeks: 0,
+      bedrockMaxTokens: 0,
+      bedrockTimeoutMs: 0,
+    };
+  }
+
+  for (const key of REPORT_SECRET_KEYS_WHEN_ENABLED) {
+    requireSecretString(secret, key, 'the weekly report');
+  }
+
+  return {
+    enabled: true,
+    streakWeeks: parsePositiveInt(
+      requireSecretString(secret, 'REPORT_STREAK_WEEKS', 'the weekly report'),
+      'REPORT_STREAK_WEEKS',
+    ),
+    // Deliberately distinct from the per-alert Bedrock limits: the report
+    // narrates aggregates and needs a different budget.
+    bedrockMaxTokens: parsePositiveInt(
+      requireSecretString(
+        secret,
+        'REPORT_BEDROCK_MAX_TOKENS',
+        'the weekly report',
+      ),
+      'REPORT_BEDROCK_MAX_TOKENS',
+    ),
+    bedrockTimeoutMs: parsePositiveInt(
+      requireSecretString(
+        secret,
+        'REPORT_BEDROCK_TIMEOUT_MS',
+        'the weekly report',
+      ),
+      'REPORT_BEDROCK_TIMEOUT_MS',
+    ),
+    webhookUrl: readOptionalString(secret, 'SLACK_REPORT_WEBHOOK_URL'),
+  };
+}
+
 export async function getConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<AlertConfig> {
@@ -204,6 +266,7 @@ export async function getConfig(
     errorPattern: secret.DEFAULT_ERROR_PATTERN.trim(),
     bedrock: getBedrockConfigFromSecret(secret),
     history: getHistoryConfigFromSecret(secret),
+    report: getReportConfigFromSecret(secret),
     grafanaBaseUrl: readOptionalString(secret, 'GRAFANA_BASE_URL'),
     lokiDatasourceUid: readOptionalString(secret, 'LOKI_DATASOURCE_UID'),
   };

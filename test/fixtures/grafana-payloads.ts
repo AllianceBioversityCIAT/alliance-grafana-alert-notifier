@@ -107,6 +107,13 @@ export const historyConfig = {
   retentionDays: 90,
 };
 
+export const reportConfig = {
+  enabled: false,
+  streakWeeks: 4,
+  bedrockMaxTokens: 1200,
+  bedrockTimeoutMs: 20000,
+};
+
 export const alertConfig = {
   lokiBaseUrl: alertSecret.LOKI_BASE_URL,
   slackWebhookUrl: alertSecret.SLACK_WEBHOOK_URL,
@@ -114,6 +121,7 @@ export const alertConfig = {
   errorPattern: alertSecret.DEFAULT_ERROR_PATTERN,
   bedrock: bedrockConfig,
   history: historyConfig,
+  report: reportConfig,
 };
 
 export const lokiQueryRangeResponse = {

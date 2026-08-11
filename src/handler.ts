@@ -16,6 +16,8 @@ import {
   type RecordAlertEventInput,
 } from './history/alert-history-store.js';
 import { testLokiConnection } from './loki/test-loki-connection.js';
+import { buildReportMessage } from './report/build-report-message.js';
+import { buildWeeklyReport } from './report/build-weekly-report.js';
 import { previewSlackMessage } from './slack/preview-slack-message.js';
 import {
   buildPreviewAlert,
@@ -54,6 +56,30 @@ function parseJsonBody(body: string | undefined): unknown {
 
 function parseGrafanaPayload(body: unknown): GrafanaWebhookPayload {
   return body as GrafanaWebhookPayload;
+}
+
+/**
+ * API Gateway delivers the payload as a JSON string in `event.body`; a direct
+ * invocation — EventBridge Scheduler, or `aws lambda invoke` — delivers it as
+ * the event itself. Everything downstream works on `unknown`, so reconciling
+ * the two shapes here is the whole change.
+ */
+function normalizeEventPayload(
+  event: APIGatewayProxyEventV2 | Record<string, unknown>,
+): unknown {
+  const body = (event as { body?: unknown }).body;
+
+  if (typeof body === 'string') {
+    return parseJsonBody(body);
+  }
+
+  // An API Gateway request with no body at all is still a malformed webhook,
+  // not a direct invocation: it carries the envelope that proves its origin.
+  if (event && typeof event === 'object' && 'requestContext' in event) {
+    return parseJsonBody(undefined);
+  }
+
+  return event;
 }
 
 function isLokiDiagnosticPayload(body: unknown): body is { diagnostic: 'loki'; job?: string } {
@@ -101,6 +127,126 @@ function isHistoryDiagnosticPayload(
     'diagnostic' in body &&
     (body as { diagnostic?: string }).diagnostic === 'history'
   );
+}
+
+function isWeeklyReportPayload(body: unknown): body is { report: 'weekly' } {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'report' in body &&
+    (body as { report?: string }).report === 'weekly'
+  );
+}
+
+function isReportDiagnosticPayload(
+  body: unknown,
+): body is { diagnostic: 'report'; dryRun?: boolean } {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'diagnostic' in body &&
+    (body as { diagnostic?: string }).diagnostic === 'report'
+  );
+}
+
+/**
+ * Builds the weekly report and, unless this is a dry run, posts one message per
+ * application.
+ *
+ * The report is deterministic: Bedrock is not involved in producing the numbers,
+ * only — later — in narrating them. A Slack failure for one application is
+ * logged and the rest still go out.
+ */
+async function handleWeeklyReport(input: {
+  dryRun: boolean;
+}): Promise<APIGatewayProxyStructuredResultV2> {
+  let config: Awaited<ReturnType<typeof getConfig>>;
+  try {
+    config = await getConfig();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Failed to load alerting configuration', { error: message });
+    return jsonResponse(500, { message: 'Configuration error', error: message });
+  }
+
+  if (!config.report.enabled) {
+    console.info('Weekly report is disabled');
+    return jsonResponse(200, { message: 'Weekly report is disabled', enabled: false });
+  }
+
+  if (!config.history.enabled) {
+    // Without the history there is nothing to report on, and silently posting
+    // an empty report would read as "a quiet week".
+    console.error('Weekly report requires alert history to be enabled');
+    return jsonResponse(409, {
+      message: 'Weekly report requires HISTORY_ENABLED',
+    });
+  }
+
+  let report: Awaited<ReturnType<typeof buildWeeklyReport>>;
+  try {
+    report = await buildWeeklyReport({
+      history: config.history,
+      timeZone: config.bedrock.timezone,
+      streakWeeks: config.report.streakWeeks,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Failed to build the weekly report', { error: message });
+    return jsonResponse(502, { message: 'Weekly report failed', error: message });
+  }
+
+  console.info('Weekly report built', {
+    week: report.week.label,
+    applications: report.totals.applicationCount,
+    alerts: report.totals.alertCount,
+    partitionsRead: report.partitionsRead,
+  });
+
+  const messages = report.reports.map((applicationReport) => ({
+    application: applicationReport.application,
+    environment: applicationReport.environment,
+    message: buildReportMessage({
+      report: applicationReport,
+      week: report.week,
+      grafanaBaseUrl: config.grafanaBaseUrl,
+    }),
+  }));
+
+  if (input.dryRun) {
+    return jsonResponse(200, {
+      message: 'Weekly report preview',
+      dryRun: true,
+      week: report.week,
+      totals: report.totals,
+      partitionsRead: report.partitionsRead,
+      reports: report.reports,
+      messages,
+    });
+  }
+
+  const webhookUrl = config.report.webhookUrl ?? config.slackWebhookUrl;
+  let delivered = 0;
+
+  for (const entry of messages) {
+    try {
+      await sendSlackMessage(webhookUrl, { text: entry.message });
+      delivered += 1;
+    } catch (error) {
+      const slackError = error instanceof Error ? error.message : String(error);
+      console.error('Failed to send weekly report', {
+        application: entry.application,
+        error: slackError,
+      });
+    }
+  }
+
+  return jsonResponse(200, {
+    message: 'Weekly report sent',
+    week: report.week.label,
+    applications: messages.length,
+    delivered,
+  });
 }
 
 const DEFAULT_HISTORY_DIAGNOSTIC_DAYS = 7;
@@ -310,17 +456,27 @@ async function processAlert(
 }
 
 export async function handler(
-  event: APIGatewayProxyEventV2,
+  event: APIGatewayProxyEventV2 | Record<string, unknown>,
   _context: Context,
 ): Promise<APIGatewayProxyStructuredResultV2> {
   let body: unknown;
 
   try {
-    body = parseJsonBody(event.body);
+    body = normalizeEventPayload(event);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Invalid webhook payload', { error: message });
     return jsonResponse(400, { message });
+  }
+
+  // First branch on purpose: a scheduled report must never fall through to the
+  // alert path, whatever else the payload happens to contain.
+  if (isWeeklyReportPayload(body)) {
+    return handleWeeklyReport({ dryRun: false });
+  }
+
+  if (isReportDiagnosticPayload(body)) {
+    return handleWeeklyReport({ dryRun: body.dryRun !== false });
   }
 
   if (isLokiDiagnosticPayload(body)) {
