@@ -16,7 +16,8 @@
     "test:loki:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic loki",
     "test:loki:webhook": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -Diagnostic loki",
     "test:slack:preview:local": "npm run build && node scripts/test-slack-preview-local.mjs",
-    "test:slack:preview:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic slack-preview"
+    "test:slack:preview:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic slack-preview",
+    "test:history:lambda": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-loki-lambda.ps1 -UseLambdaInvoke -Diagnostic history"
   },
   "engines": {
     "node": ">=20"
@@ -29,6 +30,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.817.0",
-    "@aws-sdk/client-secrets-manager": "^3.817.0"
+    "@aws-sdk/client-dynamodb": "^3.817.0",
+    "@aws-sdk/client-secrets-manager": "^3.817.0",
+    "@aws-sdk/lib-dynamodb": "^3.817.0"
   }
 }

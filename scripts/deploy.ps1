@@ -11,6 +11,9 @@ param(
   [string]$Environment = 'dev',
   [int]$Timeout = 45,
   [int]$MemorySize = 256,
+  # Empty by default: the template derives grafana-alert-history-<environment>.
+  # Set this only to point a stack at a table name of your own choosing.
+  [string]$HistoryTableName = '',
   [string]$ZipPath = '',
   [string]$Profile = '',
   [string]$TemplateFile = '',
@@ -206,7 +209,16 @@ function Deploy-Stack {
     "RoutePath=$RoutePath",
     "Environment=$Environment",
     "LambdaTimeout=$Timeout",
-    "LambdaMemorySize=$MemorySize",
+    "LambdaMemorySize=$MemorySize"
+  )
+
+  # Passing an empty override would make the CLI drop the parameter rather than
+  # send an empty string, so only send it when the caller chose a name.
+  if ($HistoryTableName) {
+    $commandArgs += "HistoryTableName=$HistoryTableName"
+  }
+
+  $commandArgs += @(
     '--no-fail-on-empty-changeset'
   )
 

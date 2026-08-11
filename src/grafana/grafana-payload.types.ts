@@ -60,6 +60,10 @@ export interface AlertingSecret {
   LOG_TIMEZONE?: string;
   GRAFANA_BASE_URL?: string;
   LOKI_DATASOURCE_UID?: string;
+  HISTORY_ENABLED?: string;
+  HISTORY_TABLE_NAME?: string;
+  HISTORY_REGION?: string;
+  HISTORY_RETENTION_DAYS?: string;
 }
 
 export interface BedrockConfig {
@@ -74,12 +78,20 @@ export interface BedrockConfig {
   timezone: string;
 }
 
+export interface HistoryConfig {
+  enabled: boolean;
+  tableName: string;
+  region: string;
+  retentionDays: number;
+}
+
 export interface AlertConfig {
   lokiBaseUrl: string;
   slackWebhookUrl: string;
   lookbackMinutes: number;
   errorPattern: string;
   bedrock: BedrockConfig;
+  history: HistoryConfig;
   /** Optional: without both, the Slack message carries no Explore link. */
   grafanaBaseUrl?: string;
   lokiDatasourceUid?: string;
