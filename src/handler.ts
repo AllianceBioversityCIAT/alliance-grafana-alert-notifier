@@ -26,7 +26,10 @@ import {
   type SlackPreviewDiagnosticPayload,
 } from './slack/slack-preview-diagnostic.js';
 import { sendSlackMessage } from './slack/slack-client.js';
-import { buildSlackWebhookPayload } from './slack/slack-webhook.js';
+import {
+  buildSlackWebhookPayload,
+  isSlackWorkflowWebhook,
+} from './slack/slack-webhook.js';
 import {
   logConfigurationLoaded,
   logSlackMessagePreview,
@@ -252,9 +255,15 @@ async function handleWeeklyReport(input: {
   );
 
   if (input.dryRun) {
+    const target = config.report.webhookUrl ?? config.slackWebhookUrl;
+
     return jsonResponse(200, {
       message: 'Weekly report preview',
       dryRun: true,
+      // The point of the diagnostic is to surface this before a scheduled run
+      // discovers it in the team's channel.
+      webhookUsable: !isSlackWorkflowWebhook(target),
+      webhookSource: config.report.webhookUrl ? 'SLACK_REPORT_WEBHOOK_URL' : 'SLACK_WEBHOOK_URL',
       week: report.week,
       totals: report.totals,
       partitionsRead: report.partitionsRead,
@@ -264,6 +273,22 @@ async function handleWeeklyReport(input: {
   }
 
   const webhookUrl = config.report.webhookUrl ?? config.slackWebhookUrl;
+
+  // The report is mrkdwn in a `{text}` field, which only an incoming webhook
+  // understands. A Workflow trigger expects the alert-shaped variables declared
+  // on that trigger, so posting there would render an empty or broken message.
+  // Refusing loudly beats publishing garbage into the team's channel.
+  if (isSlackWorkflowWebhook(webhookUrl)) {
+    console.error(
+      'Weekly report cannot post to a Slack Workflow trigger; set SLACK_REPORT_WEBHOOK_URL to an incoming webhook',
+      { applications: messages.length },
+    );
+    return jsonResponse(409, {
+      message:
+        'SLACK_REPORT_WEBHOOK_URL must be a Slack incoming webhook. The configured URL is a Workflow trigger, whose variables are alert-specific.',
+    });
+  }
+
   let delivered = 0;
 
   for (const entry of messages) {

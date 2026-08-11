@@ -110,6 +110,15 @@ Break these and you break production behavior or security:
   is not worth it. Consequence: secret changes — including the `BEDROCK_ENABLED=false` kill
   switch — only take effect on new containers. Recycle with `npm run deploy` or any
   `aws lambda update-function-configuration` call. Do not add a TTL.
+- **The weekly report needs an incoming webhook, not a Workflow trigger.** It posts
+  mrkdwn in `{text}`, which only an incoming webhook understands; a Workflow trigger
+  expects the alert-shaped variables declared on that trigger. When
+  `SLACK_REPORT_WEBHOOK_URL` is unset the report falls back to `SLACK_WEBHOOK_URL`, so if
+  *that* is a Workflow URL the handler answers 409 instead of publishing an empty message.
+  To land the report in the same channel as the alerts, create a plain incoming webhook
+  pointing at that channel — Slack allows both to post to one channel. The
+  `{"diagnostic":"report"}` preview reports `webhookUsable` so this surfaces before a
+  scheduled run finds it.
 - **Two Slack payload shapes.** A webhook URL containing `/triggers/` gets a flat Workflow
   payload (`alertname`, `job`, `latestErrors`, `message`, `logsUrl`, …); anything else gets
   `{text}`. In the Workflow shape, raw log lines travel in `latestErrors` separately from

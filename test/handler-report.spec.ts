@@ -222,6 +222,46 @@ describe('handler weekly report', () => {
     expect(mockSendSlackMessage).not.toHaveBeenCalled();
   });
 
+  it('refuses to post to a Slack Workflow trigger rather than publishing garbage', async () => {
+    // A Workflow trigger expects the alert-shaped variables declared on it, so
+    // a {text} report would render empty in the team's channel.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetConfig.mockResolvedValue({
+      ...reportEnabledConfig,
+      slackWebhookUrl: 'https://hooks.slack.com/triggers/T01ABC/123456/abcdef',
+    });
+
+    const response = await handler(
+      buildDirectEvent({ report: 'weekly' }),
+      context,
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(mockSendSlackMessage).not.toHaveBeenCalled();
+    expect(JSON.parse(response.body as string).message).toContain(
+      'incoming webhook',
+    );
+  });
+
+  it('posts when a report incoming webhook overrides a Workflow alert URL', async () => {
+    mockGetConfig.mockResolvedValue({
+      ...reportEnabledConfig,
+      slackWebhookUrl: 'https://hooks.slack.com/triggers/T01ABC/123456/abcdef',
+      report: {
+        ...reportEnabledConfig.report,
+        webhookUrl: 'https://hooks.slack.com/services/AAA/BBB/CCC',
+      },
+    });
+
+    const response = await handler(
+      buildDirectEvent({ report: 'weekly' }),
+      context,
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSendSlackMessage).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses to report when history is off rather than posting a quiet week', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mockGetConfig.mockResolvedValue({
@@ -338,6 +378,8 @@ describe('handler report diagnostic', () => {
 
     const body = JSON.parse(response.body as string);
     expect(body.dryRun).toBe(true);
+    expect(body.webhookUsable).toBe(true);
+    expect(body.webhookSource).toBe('SLACK_WEBHOOK_URL');
     expect(body.week.label).toBe('2026-W32');
     expect(body.totals.alertCount).toBe(47);
     expect(body.messages[0].message).toContain('📊 Weekly report · PRMS prod');
@@ -347,6 +389,22 @@ describe('handler report diagnostic', () => {
     await handler(buildEvent({ diagnostic: 'report' }), context);
 
     expect(mockSendSlackMessage).not.toHaveBeenCalled();
+  });
+
+  it('warns in the preview that a Workflow trigger cannot receive the report', async () => {
+    mockGetConfig.mockResolvedValue({
+      ...reportEnabledConfig,
+      slackWebhookUrl: 'https://hooks.slack.com/triggers/T01ABC/123456/abcdef',
+    });
+
+    const response = await handler(buildEvent({ diagnostic: 'report' }), context);
+
+    // The preview still renders, so the grouping can be validated even before
+    // the channel is sorted out.
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body as string);
+    expect(body.webhookUsable).toBe(false);
+    expect(body.messages).toHaveLength(1);
   });
 
   it('sends for real only when dryRun is explicitly false', async () => {
